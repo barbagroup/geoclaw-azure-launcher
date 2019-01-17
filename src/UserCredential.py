@@ -57,4 +57,4 @@ class UserCredential:
         credentials = azure.batch.batch_auth.SharedKeyCredentials(
             self.batch_account_name, self.batch_account_key)
         return azure.batch.batch_service_client.BatchServiceClient(
-            credentials, base_url=self.batch_account_url)
+            credentials, batch_url=self.batch_account_url)

@@ -26,7 +26,7 @@ class MissionController(object):
     """MissionController"""
 
     def __init__(self, user_credential, mission_name,
-                 n_comp_nodes, vm_type="STANDARD_A1_V2"):
+                 n_comp_nodes, vm_type="STANDARD_H16"):
         """__init__
 
         Args:
@@ -47,17 +47,23 @@ class MissionController(object):
         object.__setattr__(self, "job_name", "{}-job".format(self.name))
         object.__setattr__(self, "std_out", "stdout.txt")
 
+        # batch serice, pool, and nodes
         object.__setattr__(self, "batch_client", self.credential.create_batch_client())
         object.__setattr__(self, "pool", None)
         object.__setattr__(self, "nodes", None)
-        object.__setattr__(self, "job", None)
-        object.__setattr__(self, "tasks", None)
 
         # blob storage
         object.__setattr__(self, "blob_client", self.credential.create_blob_client())
         object.__setattr__(self, "container_list", numpy.empty(0, dtype=str))
         object.__setattr__(self, "container_token", {})
         object.__setattr__(self, "container_url", {})
+
+        # job, i.e., task manager/scheduler
+        object.__setattr__(self, "job_params", None)
+        object.__setattr__(self, "job", None)
+
+        object.__setattr__(self, "task_params", {})
+        object.__setattr__(self, "tasks", {})
 
     def __setattr__(self, name, value):
         """__setattr__
@@ -75,6 +81,19 @@ class MissionController(object):
             "VM type: {}\n".format(self.vm_type)
 
         return s
+
+    def initialize(self):
+        """initialize"""
+
+        self.create_pool()
+        self.create_job()
+
+    def finalize(self):
+        """finalize"""
+
+        self.delete_job()
+        self.delete_all_data()
+        self.delete_pool()
 
     def get_pool(self):
         """get_pool
@@ -276,6 +295,11 @@ class MissionController(object):
 
         self.monitor_pool_deletion()
 
+    def delete_job(self):
+        """delete_job"""
+
+        self.batch_client.job.delete(self.job_name)
+
     def upload_dir(self, dir_path):
         """upload_dir
 
@@ -317,6 +341,7 @@ class MissionController(object):
                 dir_base_name,
                 permission=azure.storage.blob.ContainerPermissions(
                     True, True, True, True),
+                start=datetime.datetime.utcnow(),
                 expiry=datetime.datetime.utcnow()+datetime.timedelta(days=1)
             )
 
@@ -324,6 +349,10 @@ class MissionController(object):
         self.container_url[dir_base_name] = \
             self.blob_client.make_container_url(
                 dir_base_name, sas_token=self.container_token[dir_base_name])
+
+        # not sure why there's an extra key in the url
+        self.container_url[dir_base_name] = \
+            self.container_url[dir_base_name].replace("restype=container&", "")
 
         # upload files
         for dirpath, dirs, files in os.walk(dir_path):
@@ -343,3 +372,89 @@ class MissionController(object):
         for container_name in self.container_list:
             deleted = self.blob_client.delete_container(
                 container_name, fail_not_exist=True)
+
+    def create_job(self):
+        """create_job"""
+
+        # job parameters
+        object.__setattr__(
+            self, "job_params",
+            azure.batch.models.JobAddParameter(
+                id=self.job_name,
+                pool_info=azure.batch.models.PoolInformation(
+                    pool_id=self.pool_name)))
+
+        # add job
+        try:
+            self.batch_client.job.add(self.job_params)
+        except azure.batch.models.BatchErrorException as err:
+            if err.message.value.startswith("The specified job already exists."):
+                print("\nJob already exists. Skip.")
+            else:
+                raise
+
+        # get and assign job information/instance
+        object.__setattr__(self, "job", self.batch_client.job.get(self.job_name))
+
+    def add_task(self, case):
+        """add_task
+
+        Args:
+            case [in]: the name of case directory
+        """
+
+        self.upload_dir(case)
+
+        task_container_settings = azure.batch.models.TaskContainerSettings(
+            image_name="barbagroup/landspill:applications",
+            container_run_options="--rm " + \
+                "--workdir /home/landspill/geoclaw-landspill-cases")
+
+        input_data = [azure.batch.models.ResourceFile(
+            storage_container_url=self.container_url[case])]
+
+        output_data = [azure.batch.models.OutputFile(
+            file_pattern="**/*",
+            upload_options=azure.batch.models.OutputFileUploadOptions(
+                upload_condition= \
+                    azure.batch.models.OutputFileUploadCondition.task_completion),
+            destination=azure.batch.models.OutputFileDestination(
+                container= \
+                    azure.batch.models.OutputFileBlobContainerDestination(
+                        container_url=self.container_url[case])))]
+
+        command = "/bin/bash -c \"" + \
+            "cp -r $AZ_BATCH_TASK_WORKING_DIR/{} ./ && ".format(case) + \
+            "python run.py {} && ".format(case) + \
+            "python createnc.py {} && ".format(case) + \
+            "cp -r ./{} $AZ_BATCH_TASK_WORKING_DIR".format(case) + \
+            "\""
+        print(command)
+
+        self.task_params[case] = azure.batch.models.TaskAddParameter(
+            id=case,
+            command_line=command,
+            container_settings=task_container_settings,
+            resource_files=input_data,
+            output_files=output_data)
+
+        self.batch_client.task.add(self.job_name, self.task_params[case])
+        self.tasks[case] = self.batch_client.task.get(self.job_name, case)
+
+    def download_data(self, case):
+        """download_data"""
+
+        blob_list = self.blob_client.list_blobs(case)
+        for b in blob_list:
+            file_abs_path = os.path.abspath(b.name)
+
+            if not os.path.isdir(os.path.dirname(file_abs_path)):
+                os.makedirs(os.path.dirname(file_abs_path))
+
+            self.blob_client.get_blob_to_path(
+                container_name=case,
+                blob_name=b.name,
+                file_path=file_abs_path,
+                progress_callback=functools.partial(
+                    reporthook, "Downloading {}".format(b.name)))
+        print()
