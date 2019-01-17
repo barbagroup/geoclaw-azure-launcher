@@ -9,11 +9,17 @@
 """
 A top level controller of the whole mission.
 """
+import os
 import sys
 import time
 import numpy
+import datetime
+import functools
 import azure.batch.models
+import azure.storage.blob
+import azure.common
 from .UserCredential import UserCredential
+from .misc import reporthook
 
 
 class MissionController(object):
@@ -41,13 +47,17 @@ class MissionController(object):
         object.__setattr__(self, "job_name", "{}-job".format(self.name))
         object.__setattr__(self, "std_out", "stdout.txt")
 
-        object.__setattr__(self, "blob_client", self.credential.create_blob_client())
         object.__setattr__(self, "batch_client", self.credential.create_batch_client())
-
         object.__setattr__(self, "pool", None)
         object.__setattr__(self, "nodes", None)
         object.__setattr__(self, "job", None)
         object.__setattr__(self, "tasks", None)
+
+        # blob storage
+        object.__setattr__(self, "blob_client", self.credential.create_blob_client())
+        object.__setattr__(self, "container_list", numpy.empty(0, dtype=str))
+        object.__setattr__(self, "container_token", {})
+        object.__setattr__(self, "container_url", {})
 
     def __setattr__(self, name, value):
         """__setattr__
@@ -265,3 +275,71 @@ class MissionController(object):
             self.batch_client.pool.delete(self.pool_name)
 
         self.monitor_pool_deletion()
+
+    def upload_dir(self, dir_path):
+        """upload_dir
+
+        Args:
+            dir_path [in]: path to the directory
+        """
+
+        # get the base name and use it as container name
+        dir_path = os.path.abspath(dir_path)
+        dir_base_name = os.path.basename(dir_path)
+        object.__setattr__(
+            self, "container_list",
+            numpy.append(self.container_list, [dir_base_name]))
+
+        # create a container
+        wait = True
+        while wait:
+            try:
+                self.blob_client.create_container(
+                    dir_base_name, fail_on_exist=True)
+                wait = False
+            except azure.common.AzureConflictHttpError as err:
+                if err.error_code == "ContainerAlreadyExists":
+                    print("\n    Container {} ".format(dir_base_name) +
+                          "already exists. Skip.")
+                    wait = False
+                elif err.error_code == "ContainerBeingDeleted":
+                    print("\n    Old container {} ".format(dir_base_name) +
+                          "is being deleted. Will retry later in 10 sec")
+                    time.sleep(10)
+                else:
+                    raise
+
+        print("\n    Container {} ".format(dir_base_name) + "Created.")
+
+        # get the SAS token
+        self.container_token[dir_base_name] = \
+            self.blob_client.generate_container_shared_access_signature(
+                dir_base_name,
+                permission=azure.storage.blob.ContainerPermissions(
+                    True, True, True, True),
+                expiry=datetime.datetime.utcnow()+datetime.timedelta(days=1)
+            )
+
+        # get the SAS url
+        self.container_url[dir_base_name] = \
+            self.blob_client.make_container_url(
+                dir_base_name, sas_token=self.container_token[dir_base_name])
+
+        # upload files
+        for dirpath, dirs, files in os.walk(dir_path):
+            for f in files:
+
+                file_path = os.path.join(os.path.abspath(dirpath), f)
+                blob_name = os.path.relpath(file_path, os.path.dirname(dir_path))
+
+                self.blob_client.create_blob_from_path(
+                    dir_base_name, blob_name, file_path,
+                    progress_callback=functools.partial(reporthook, "    Uploading"))
+        print("\r    Uploading done.")
+
+    def delete_all_data(self):
+        """delete_all_data"""
+
+        for container_name in self.container_list:
+            deleted = self.blob_client.delete_container(
+                container_name, fail_not_exist=True)
