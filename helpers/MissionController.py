@@ -10,7 +10,6 @@
 A controller for the mission (i.e., object that can issue action on Azure).
 """
 import os
-import sys
 import time
 import datetime
 import logging
@@ -25,13 +24,12 @@ from helpers import MissionInfo
 class MissionController():
     """MissionController"""
 
-    def __init__(self, user_credential, mission_info, output=sys.stdout):
+    def __init__(self, user_credential, mission_info):
         """__init__
 
         Args:
             user_credential [in]: An instance of UserCredential.
             mission_info [in]: A MissionInfo object.
-            output [in]: a string for output file or an opened file object.
         """
 
         assert isinstance(user_credential, UserCredential), "Type error!"
@@ -42,13 +40,6 @@ class MissionController():
 
         # an alias/pointer to the MissionInfo object
         self.info = mission_info
-
-        # output file
-        if isinstance(output, str):
-            self.output = open(output, "a")
-            self.close_output = True
-        else:
-            self.close_output = False
 
         # Batch service client
         self.batch_client = self.credential.create_batch_client()
@@ -62,15 +53,6 @@ class MissionController():
 
         # variable to track what we uploaded
         self.uploaded_dirs = {}
-
-    def __del__(self):
-        """__del__
-
-        Destructor.
-        """
-
-        if self.close_output:
-            self.output.close()
 
     def _create_pool(self):
         """Create a pool on Azure based on the mission info."""
@@ -474,3 +456,8 @@ class MissionController():
 
         logging.info("Add task %s.", case)
         self.batch_client.task.add(self.info.job_name, task_params)
+
+    def delete_task(self, case):
+        """Delete a task from the mission's job (i.e., task scheduler)."""
+
+        raise NotImplementedError
