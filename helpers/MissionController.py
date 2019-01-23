@@ -54,7 +54,7 @@ class MissionController():
         # variable to track what we uploaded
         self.uploaded_dirs = {}
 
-    def _create_pool(self):
+    def create_pool(self):
         """Create a pool on Azure based on the mission info."""
 
         # if the pool already exists (it does not mean it's ready)
@@ -126,7 +126,7 @@ class MissionController():
 
             logging.info("Creation command issued.")
 
-    def _delete_pool(self):
+    def delete_pool(self):
         """Delete a pool on Azure based on the content set in self."""
 
         logging.info("Issuing deletion to pool %s.", self.info.pool_name)
@@ -139,7 +139,7 @@ class MissionController():
             logging.info(
                 "Pool %s does not exist. Skip deletion.", self.info.pool_name)
 
-    def _create_storage_container(self):
+    def create_storage_container(self):
         """Create a blob container for this mission."""
 
         # create a container
@@ -220,7 +220,7 @@ class MissionController():
             self.container_url.replace("restype=container&", "")
         logging.info("SAS URL for %s obtained.", self.info.container_name)
 
-    def _delete_storage_container(self):
+    def delete_storage_container(self):
         """delete_all_data"""
 
         logging.info(
@@ -231,7 +231,7 @@ class MissionController():
 
         logging.info("Deletion issued.")
 
-    def _create_job(self):
+    def create_job(self):
         """Create a job (i.e. task scheduler) for this mission."""
 
         # job parameters
@@ -252,7 +252,7 @@ class MissionController():
             else:
                 raise
 
-    def _delete_job(self):
+    def delete_job(self):
         """Delete the mission job (i.e. task scheduler)."""
 
         logging.info("Issuing deletion to job %s", self.info.job_name)
@@ -261,7 +261,7 @@ class MissionController():
 
         logging.info("Deletion command issued.")
 
-    def _upload_dir(self, dir_path):
+    def upload_dir(self, dir_path):
         """Upload a directory to the mission container."""
 
         # get the full and absolute path (and basename)
@@ -312,7 +312,7 @@ class MissionController():
 
         os.remove("uploaded_dirs.dat")
 
-    def _download_dir(self, dir_path, ignore_not_exist=True):
+    def download_dir(self, dir_path, ignore_not_exist=True):
         """Download a directory from the mission blob container."""
 
         # get the full and absolute path
@@ -354,7 +354,7 @@ class MissionController():
 
             logging.info("Done downloading directory %s.", dir_path)
 
-    def _delete_dir(self, dir_path, ignore_not_exist=True):
+    def delete_dir(self, dir_path, ignore_not_exist=True):
         """Delete a directory from the mission's container."""
 
         # get the full and absolute path
