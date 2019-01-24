@@ -54,6 +54,9 @@ class MissionController():
         # variable to track what we uploaded
         self.uploaded_dirs = {}
 
+        # variable to track what we have downloaded
+        self.downloaded = []
+
     def create_pool(self):
         """Create a pool on Azure based on the mission info."""
 
@@ -167,6 +170,21 @@ class MissionController():
                         self.uploaded_dirs = pickle.loads(f.read())
                     logging.info("uploaded_dirs recovered.")
                     os.remove("uploaded_dirs.dat")
+
+                if self.storage_client.exists(
+                        container_name=self.info.container_name,
+                        blob_name="downloaded.dat"):
+
+                    logging.info("Downloading downloaded.dat to recover info.")
+                    self.storage_client.get_blob_to_path(
+                        container_name=self.info.container_name,
+                        blob_name="downloaded.dat", file_path="downloaded.dat")
+                    logging.info("Done downloading downloaded.dat.")
+
+                    with open("downloaded.dat", "rb") as f:
+                        self.downloaded = pickle.loads(f.read())
+                    logging.info("downloaded recovered.")
+                    os.remove("downloaded.dat")
 
             elif err.error_code == "ContainerBeingDeleted":
                 created = False
@@ -316,7 +334,7 @@ class MissionController():
 
         os.remove("uploaded_dirs.dat")
 
-    def download_dir(self, dir_path, ignore_not_exist=True):
+    def download_dir(self, dir_path, ignore_downloaded=True, ignore_not_exist=True):
         """Download a directory from the mission blob container."""
 
         # get the full and absolute path
@@ -326,6 +344,10 @@ class MissionController():
         # check if the container exists
         assert self.container_url is not None
         assert self.container_token is not None
+
+        if ignore_downloaded and (dir_base_name in self.downloaded):
+            logging.info("Directory %s already downloaded. Skip.", dir_path)
+            return
 
         logging.info("Downloading directory %s.", dir_path)
 
@@ -338,25 +360,42 @@ class MissionController():
             else:
                 logging.warning(
                     "Directory %s is not in the container. SKIP.", dir_path)
-        else:
-            blob_list = self.storage_client.list_blobs(
+
+                return
+
+        blob_list = self.storage_client.list_blobs(
+            container_name=self.info.container_name,
+            prefix="{}/".format(dir_base_name), num_results=50000)
+
+        for blob in blob_list:
+            file_abs_path = os.path.join(
+                self.uploaded_dirs[dir_base_name], blob.name)
+
+            if not os.path.isdir(os.path.dirname(file_abs_path)):
+                os.makedirs(os.path.dirname(file_abs_path))
+
+            logging.info("Downloading file %s.", file_abs_path)
+            self.storage_client.get_blob_to_path(
                 container_name=self.info.container_name,
-                prefix="{}/".format(dir_base_name), num_results=50000)
+                blob_name=blob.name, file_path=file_abs_path)
+            logging.info("Done downloading file %s.", file_abs_path)
 
-            for blob in blob_list:
-                file_abs_path = os.path.join(
-                    self.uploaded_dirs[dir_base_name], blob.name)
+        logging.info("Done downloading directory %s.", dir_path)
 
-                if not os.path.isdir(os.path.dirname(file_abs_path)):
-                    os.makedirs(os.path.dirname(file_abs_path))
+        # add the case name to the tracking list
+        self.downloaded.append(dir_base_name)
 
-                logging.info("Downloading file %s.", file_abs_path)
-                self.storage_client.get_blob_to_path(
-                    container_name=self.info.container_name,
-                    blob_name=blob.name, file_path=file_abs_path)
-                logging.info("Done downloading file %s.", file_abs_path)
+        # write the downloaded info to a file and upload to the container as a log
+        with open("downloaded.dat", "wb") as f:
+            f.write(pickle.dumps(self.downloaded))
 
-            logging.info("Done downloading directory %s.", dir_path)
+        logging.info("Uploading downloaded.dat")
+        self.storage_client.create_blob_from_path(
+            container_name=self.info.container_name, blob_name="downloaded.dat",
+            file_path="downloaded.dat", max_connections=2)
+        logging.info("Done uploading downloaded.dat")
+
+        os.remove("downloaded.dat")
 
     def delete_dir(self, dir_path, ignore_not_exist=True):
         """Delete a directory from the mission's container."""
