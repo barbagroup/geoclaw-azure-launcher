@@ -42,12 +42,12 @@ class MissionMonitor():
 
         Return:
             Return type is of [str, str]. Possible values for the first string
-            are: not_exist, active, and deleting. Possible values for the second
+            are: N/A, active, and deleting. Possible values for the second
             string are: N/A, steady, resizing, and stopping.
         """
 
         if not self.batch_client.pool.exists(pool_id=self.info.pool_name):
-            return "not_exist", "N/A"
+            return "N/A", "N/A"
 
         # get pool info
         the_pool = self.batch_client.pool.get(pool_id=self.info.pool_name)
@@ -66,6 +66,9 @@ class MissionMonitor():
             'starting', 'waitingForStartTask', 'startTaskFailed', 'unknown',
             'leavingPool', 'offline', and 'preempted'
         """
+
+        if self.report_pool_status()[0] == "N/A":
+            return {}
 
         node_list = self.batch_client.compute_node.list(
             pool_id=self.info.pool_name)
@@ -107,7 +110,7 @@ class MissionMonitor():
             the_job = self.batch_client.job.get(job_id=self.info.job_name)
         except azure.batch.models.BatchErrorException as err:
             if err.message.value.startswith("The specified job does not exist"):
-                return "not_exist"
+                return "N/A"
             else:
                 raise
 
@@ -126,9 +129,9 @@ class MissionMonitor():
                 job_id=self.info.job_name, task_id=task_name)
         except azure.batch.models.BatchErrorException as err:
             if err.message.value.startswith("The specified job does not exist"):
-                return "not_exist"
+                return "N/A"
             if err.message.value.startswith("The specified task does not exist"):
-                return "not_exist"
+                return "N/A"
             else:
                 raise
 
@@ -146,14 +149,10 @@ class MissionMonitor():
             states.
         """
 
-        try:
-            task_list = self.batch_client.task.list(job_id=self.info.job_name)
-        except azure.batch.models.BatchErrorException as err:
-            if err.message.value.startswith("The specified job does not exist"):
-                return {}
-            else:
-                raise
+        if self.report_job_status() == "N/A":
+            return {}
 
+        task_list = self.batch_client.task.list(job_id=self.info.job_name)
         task_states = {}
         for task in task_list:
 
@@ -176,6 +175,8 @@ class MissionMonitor():
                 [total tasks, running tasks, completed tasks, failed tasks]
         """
 
+        # TODO: use batch_client.job.get_task_count instead
+
         task_states = list(self.report_all_task_status().values())
 
         total = len(task_states)
@@ -189,13 +190,13 @@ class MissionMonitor():
         """Report the status of the mission storage container.
 
         Return:
-            A string. Possible values: available and not_exist.
+            A string. Possible values: available and N/A.
         """
 
         if self.storage_client.exists(container_name=self.info.container_name):
             return "available"
 
-        return "not_exist"
+        return "N/A"
 
     def report_storage_container_dirs(self):
         """Report info of the top-level directories in the mission container.
