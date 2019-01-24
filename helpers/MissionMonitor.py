@@ -120,8 +120,8 @@ class MissionMonitor():
         """Report the status of a single task.
 
         Return:
-            The return type is a str. Possible values are: active, preparing,
-            running, failed, and completed.
+            The return type is a str. Possible values are: N/A, active,
+            preparing, running, failed, and completed.
         """
 
         try:
@@ -130,7 +130,7 @@ class MissionMonitor():
         except azure.batch.models.BatchErrorException as err:
             if err.message.value.startswith("The specified job does not exist"):
                 return "N/A"
-            if err.message.value.startswith("The specified task does not exist"):
+            elif err.message.value.startswith("The specified task does not exist"):
                 return "N/A"
             else:
                 raise
@@ -275,7 +275,9 @@ class MissionMonitor():
             A string for printing out on stdout.
         """
 
-        s = "Report time (UTC): {}\n".format(
+        s = "\n"
+
+        s += "Report time (UTC): {}\n".format(
             datetime.datetime.utcnow().replace(
                 tzinfo=datetime.timezone.utc, microsecond=0))
 

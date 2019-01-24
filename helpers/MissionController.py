@@ -262,7 +262,11 @@ class MissionController():
         logging.info("Deletion command issued.")
 
     def upload_dir(self, dir_path):
-        """Upload a directory to the mission container."""
+        """Upload a directory to the mission container.
+
+        Args:
+            dir_path [in]: the directory being uploaded.
+        """
 
         # get the full and absolute path (and basename)
         dir_path = os.path.abspath(os.path.normpath(dir_path))
@@ -411,7 +415,7 @@ class MissionController():
         """
 
         # upload to the storage container
-        self._upload_dir(case)
+        self.upload_dir(case)
 
         # get the full and absolute path
         case_path = os.path.abspath(os.path.normpath(case))

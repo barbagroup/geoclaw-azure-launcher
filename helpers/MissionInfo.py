@@ -23,7 +23,7 @@ class MissionInfo():
         Args:
             mission_name [in]: A str for the name of this mission.
             n_comp_nodes [in]: Total number of computing nodes requested.
-            log_file[optional]: the destination of output message (default: stdout)
+            tasks[in]: A list of tasks.
             vm_type [optional]: The type of virtual machine. (default: STANDARD_H8)
         """
 
