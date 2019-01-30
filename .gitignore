@@ -1,2 +1,9 @@
 *.log
 credential.txt
+**/_output
+**/*.data
+**/_plots
+**/__pycache__
+**/*.nc
+**/*.asc
+**/utah_dem_topo_3.txt

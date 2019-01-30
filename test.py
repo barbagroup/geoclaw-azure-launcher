@@ -11,8 +11,8 @@ Test the Azure mission launcher.
 """
 import os
 import sys
-from helpers import UserCredential
-from helpers import Mission
+from helpers.azuretools import UserCredential
+from helpers.azuretools import Mission
 
 
 if __name__ == "__main__":

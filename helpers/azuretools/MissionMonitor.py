@@ -12,8 +12,8 @@ A class to monitor the status/progress of a mission.
 import datetime
 import azure.batch
 import azure.storage.blob
-from helpers import UserCredential
-from helpers import MissionInfo
+from helpers.azuretools import UserCredential
+from helpers.azuretools import MissionInfo
 
 
 class MissionMonitor():
