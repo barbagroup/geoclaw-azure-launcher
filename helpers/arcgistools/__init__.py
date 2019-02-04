@@ -11,6 +11,7 @@ __init__.py
 """
 from helpers.arcgistools.create_folders import create_folders
 from helpers.arcgistools.prepare_topo import prepare_topo
+from helpers.arcgistools.prepare_hydro import prepare_hydro
 from helpers.arcgistools.write_geoclaw_params import print_setrun
 from helpers.arcgistools.write_geoclaw_params import print_roughness
 
