@@ -13,20 +13,18 @@ import os
 import arcpy
 import numpy
 
-
-def prepare_topo(base, points, extent, output_dirs, ignore=False):
+def prepare_topos(base, points, extent, out_dirs, ignore=False):
     """Prepare topagraphy files for each rupture points by clipping base topo."""
 
-    output_files = []
+    outputs = []
 
     for i, point in enumerate(points):
-        output_files.append(os.path.join(output_dirs[i], "topo.asc"))
-        prepare_topo_single(base, point, extent, output_files[i], ignore)
+        outputs.append(
+            prepare_topo_single(base, point, extent, out_dirs[i], ignore))
 
-    return output_files
+    return outputs
 
-
-def prepare_topo_single(base, point, extent, output, ignore=False):
+def prepare_single_topo(base, point, extent, out_dir, ignore=False):
     """Prepare the topo file for a rupture point by clipping base topo."""
 
     top = point[1] + extent[0] + 10
@@ -34,9 +32,14 @@ def prepare_topo_single(base, point, extent, output, ignore=False):
     left = point[0] - extent[2] - 10
     right = point[0] + extent[3] + 10
 
+    if not os.path.isdir(out_dir):
+        raise FileNotFoundError("{} does not exist.".format(out_dir))
+
+    output = os.path.join(out_dir, "topo.asc")
+
     if os.path.isfile(output):
         if ignore:
-            return
+            return output
         else:
             os.remove(output)
 
@@ -53,3 +56,5 @@ def prepare_topo_single(base, point, extent, output, ignore=False):
 
     # remove the temporary raster
     arcpy.management.Delete("temp")
+
+    return output

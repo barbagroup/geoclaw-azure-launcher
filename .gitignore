@@ -7,3 +7,4 @@ credential.txt
 **/*.nc
 **/*.asc
 **/utah_dem_topo_3.txt
+**/*.xml

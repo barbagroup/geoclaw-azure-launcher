@@ -8,6 +8,7 @@
 """
 Write GeoClaw setrun.py
 """
+import os
 import numpy
 
 template = \
@@ -121,7 +122,7 @@ template = \
 "    refinement_data.max_level_deep = 3" + "\n" + \
 "    refinement_data.variable_dt_refinement_ratios = True" + "\n" + \
 "    topo_data = rundata.topo_data" + "\n" + \
-"    topo_data.topofiles.append([3, 1, 5, 0., 1.e10, \"{topo}\"])" + "\n" + \
+"    topo_data.topofiles.append([3, 1, 5, 0., 1.e10, \"topo.asc\"])" + "\n" + \
 "    dtopo_data = rundata.dtopo_data" + "\n" + \
 "    rundata.qinit_data.qinit_type = 0" + "\n" + \
 "    rundata.qinit_data.qinitfiles = []" + "\n" + \
@@ -138,11 +139,13 @@ template = \
 "    ptsources_data.point_sources.append(" + "\n" + \
 "        [[{point[0]}, {point[1]}], {NStages}, {StageTimes}, {StageRates}])" + "\n" + \
 "    darcy_weisbach_data = landspill.darcy_weisbach_friction" + "\n" + \
-"    darcy_weisbach_data.type = 4" + "\n" + \
+"    darcy_weisbach_data.type = {friction_type}" + "\n" + \
 "    darcy_weisbach_data.dry_tol = 1e-4" + "\n" + \
 "    darcy_weisbach_data.friction_tol = 1e6" + "\n" + \
-"    darcy_weisbach_data.default_roughness = 0.1" + "\n" + \
+"    darcy_weisbach_data.default_roughness = {roughness}" + "\n" + \
 "    darcy_weisbach_data.filename = 'roughness.txt'" + "\n" + \
+"    hydro_feature_data = landspill.hydro_features" + "\n" + \
+"    hydro_feature_data.files = {hydros}" + "\n" + \
 "    evaporation_data = landspill.evaporation" + "\n" + \
 "    evaporation_data.type = {evap_type}" + "\n" + \
 "    evaporation_data.coefficients = {evap_coeffs}" + "\n" + \
@@ -152,10 +155,14 @@ template = \
 "    rundata = setrun(*sys.argv[1:])" + "\n" + \
 "    rundata.write()"
 
-def print_setrun(
-        output, point, extent, res, topo, ref_mu, ref_temp, amb_temp,
-        density, NStages, StageTimes, StageRates, evap_type, evap_coeffs):
-    """Print setrun.py"""
+def write_setrun(
+        out_dir, point, extent, res, ref_mu, ref_temp, amb_temp,
+        density, leak_profile, evap_type, evap_coeffs, n_hydros,
+        friction_type, roughness):
+    """Write setrun.py"""
+
+    if not os.path.isdir(out_dir):
+        raise FileNotFoundError("{} does not exist.".format(out_dir))
 
     NCells = [int((extent[3]+extent[2])/(4*res[0])+0.5),
               int((extent[1]+extent[0])/(4*res[1])+0.5)]
@@ -169,18 +176,34 @@ def print_setrun(
     else:
         raise RuntimeError
 
-    data = template.format(
-        point=point, extent=extent, NCells=NCells, topo=topo, ref_mu=ref_mu,
-        ref_temp=ref_temp, amb_temp=amb_temp, density=density, NStages=NStages,
-        StageTimes=numpy.array2string(StageTimes, separator=", "),
-        StageRates=numpy.array2string(StageRates, separator=", "),
-        evap_type=evap_type_num,
-        evap_coeffs=numpy.array2string(evap_coeffs, separator=", "))
+    if friction_type == "None":
+        friction_type_num = 0
+    elif friction_type == "Three-regime model":
+        friction_type_num = 4
+    else:
+        raise RuntimeError
 
+    hydro_strings = ["hydro_{}.asc".format(i) for i in range(n_hydros)]
+
+    data = template.format(
+        point=point, extent=extent, NCells=NCells,
+        ref_mu=ref_mu, ref_temp=ref_temp, amb_temp=amb_temp, density=density,
+        NStages=leak_profile.shape[0],
+        StageTimes=numpy.array2string(leak_profile[:, 0], separator=", "),
+        StageRates=numpy.array2string(leak_profile[:, 1], separator=", "),
+        evap_type=evap_type_num,
+        evap_coeffs=numpy.array2string(evap_coeffs, separator=", "),
+        hydros=hydro_strings,
+        friction_type=friction_type_num,
+        roughness=roughness)
+
+    output = os.path.join(out_dir, "setrun.py")
     with open(output, "w") as f:
         f.write(data)
 
-def print_roughness(output, point, extent, value):
+    return output, write_roughness(out_dir, point, extent, roughness)
+
+def write_roughness(out_dir, point, extent, value):
     """Write roughness.txt."""
 
     temp = \
@@ -193,8 +216,11 @@ def print_roughness(output, point, extent, value):
         "{}"
 
     data = temp.format(
-        point[0]-extent[2], point[1]-extent[1],
-        extent[1]+extent[0], -9999, value)
+        point[0]-extent[2]-10, point[1]-extent[1]-10,
+        extent[1]+extent[0]+20, -9999, value)
 
+    output = os.path.join(out_dir, "roughness.txt")
     with open(output, "w") as f:
         f.write(data)
+
+    return output

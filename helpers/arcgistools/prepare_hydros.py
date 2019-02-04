@@ -13,8 +13,11 @@ import os
 import arcpy
 
 
-def prepare_hydro_single_point(in_feats, point, extent, res, out_dir, ignore=False):
+def prepare_single_point_hydros(in_feats, point, extent, res, out_dir, ignore=False):
     """Prepare hydro feature rasters for a single point."""
+
+    if not os.path.isdir(out_dir):
+        raise FileNotFoundError("{} does not exist.".format(out_dir))
 
     top = point[1] + extent[0] + 10
     bottom = point[1] - extent[1] - 10
@@ -23,7 +26,7 @@ def prepare_hydro_single_point(in_feats, point, extent, res, out_dir, ignore=Fal
     coord = [(left, bottom), (right, bottom), (right, top), (left, top)]
 
     result = arcpy.management.CreateFeatureclass(
-        arcpy.env.workspace, "square", "POLYGON", 
+        arcpy.env.workspace, "square", "POLYGON",
         spatial_reference=3857)
     clipper = result[0]
 
@@ -42,32 +45,31 @@ def prepare_hydro_single_point(in_feats, point, extent, res, out_dir, ignore=Fal
                 os.remove(out_files[-1])
 
         arcpy.analysis.Clip(
-            in_features=feat, clip_features=clipper, 
+            in_features=feat, clip_features=clipper,
             out_feature_class="hydro_feat_{}".format(i))
-        
+
         arcpy.conversion.FeatureToRaster(
-            "hydro_feat_{}".format(i), "FType", 
+            "hydro_feat_{}".format(i), "FType",
             "hydro_raster_{}".format(i), res)
-        
-        arcpy.conversion.RasterToASCII("hydro_raster_{}".format(i), out_files[-1])
-        
+
+        arcpy.conversion.RasterToASCII(
+            "hydro_raster_{}".format(i), out_files[-1])
+
         arcpy.management.Delete("hydro_feat_{}".format(i))
         arcpy.management.Delete("hydro_raster_{}".format(i))
 
     arcpy.management.Delete(clipper)
-    
+
     return out_files
 
-def prepare_hydro(in_feats, points, extent, res, output_dirs, ignore=False):
+def prepare_hydros(in_feats, points, extent, res, out_dirs, ignore=False):
     """Prepare hydro files for each rupture points by clipping base topo."""
 
-    n_feats = in_feats.rowCount
-    feats = [in_feats.getRow(i).strip("' ") for i in range(n_feats)]
-
-    output_files = []
+    outputs = []
 
     for i, point in enumerate(points):
-        temp = prepare_hydro_single_point(feats, point, extent, res, output_dirs[i], ignore)
-        output_files.append(temp)
+        outputs.append(
+            prepare_single_point_hydros(
+                in_feats, point, extent, res, out_dirs[i], ignore))
 
-    return output_files
+    return outputs

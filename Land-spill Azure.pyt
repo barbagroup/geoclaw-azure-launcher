@@ -14,6 +14,7 @@ ArcGIS Pro Python toolbox.
 import os
 import numpy
 import helpers.arcgistools
+import helpers.azuretools
 import importlib
 importlib.reload(helpers.arcgistools)
 
@@ -60,7 +61,7 @@ class LandSpillSimulationsOnAzure(object):
             category="Basic", displayName="Working Directory", name="working_dir",
             datatype="DEWorkspace", parameterType="Required", direction="Input")
 
-        working_dir.value = os.getcwd()
+        working_dir.defaultEnvironmentName = "scratchFolder"
 
         # 1, basic: rupture point
         rupture_point = arcpy.Parameter(
@@ -151,7 +152,7 @@ class LandSpillSimulationsOnAzure(object):
             category="Fluid settings",
             displayName="Ambient temperature (Celsius)", name="temp",
             datatype="GPDouble", parameterType="Required", direction="Input")
-        temp .value= 25.0
+        temp.value= 25.0
 
         # 14
         density = arcpy.Parameter(
@@ -167,63 +168,107 @@ class LandSpillSimulationsOnAzure(object):
             datatype="GPString", parameterType="Required", direction="Input")
         evap_type.filter.type = "ValueList"
         evap_type.filter.list = ["None", "Fingas1996 Log Law", "Fingas1996 SQRT Law"]
-        evap_type.value = "None"
+        evap_type.value = "Fingas1996 Log Law"
 
         # 16
         evap_c1 = arcpy.Parameter(
             category="Fluid settings",
             displayName="Evaporation coefficients 1", name="evap_c1",
-            datatype="GPDouble", parameterType="Optional", direction="Input",
-            enabled=False)
-        evap_c1.value = 0.0
+            datatype="GPDouble", parameterType="Optional", direction="Input")
+        evap_c1.value = 1.38
 
         # 17
         evap_c2 = arcpy.Parameter(
             category="Fluid settings",
             displayName="Evaporation coefficients 2", name="evap_c2",
-            datatype="GPDouble", parameterType="Optional", direction="Input",
-            enabled=False)
-        evap_c2.value = 0.0
+            datatype="GPDouble", parameterType="Optional", direction="Input")
+        evap_c2.value = 0.045
 
 
         params += [ref_viscosity, ref_temp, temp, density, evap_type, evap_c1, evap_c2]
 
         # =====================================================================
+        # Darcy-Weisbach section
+        # =====================================================================
+
+        # 18
+        friction_type = arcpy.Parameter(
+            category="Darcy-Weisbach friction settings",
+            displayName="Darcy-Weisbach model", name="friction_type",
+            datatype="GPString", parameterType="Required", direction="Input")
+        friction_type.filter.type = "ValueList"
+        friction_type.filter.list = ["None", "Three-regime model"]
+        friction_type.value = "Three-regime model"
+
+        # 19
+        roughness =  arcpy.Parameter(
+            category="Darcy-Weisbach friction settings",
+            displayName="Surface roughness", name="roughness",
+            datatype="GPDouble", parameterType="Optional", direction="Input")
+        roughness.value = 0.1
+
+        params += [friction_type, roughness]
+
+        # =====================================================================
         # Azure section
         # =====================================================================
 
-        # Azure
-        azure_batch_name = arcpy.Parameter(
-            category="Azure Credential",
-            displayName="Azure Batch account name", name="azure_batch_name",
+        # maximum number of computing nodes
+        max_nodes = arcpy.Parameter(
+            category="Azure settings",
+            displayName="Maximum number of computing nodes", name="max_nodes",
+            datatype="GPLong", parameterType="Required", direction="Input")
+        max_nodes.value = 2
+
+        vm_type = arcpy.Parameter(
+            category="Azure settings",
+            displayName="Computing node type", name="vm_type",
             datatype="GPString", parameterType="Required", direction="Input")
+        vm_type.filter.type = "ValueList"
+        vm_type.filter.list = ["STANDARD_A1_V2", "STANDARD_H8", "STANDARD_H16"]
+        vm_type.value = "STANDARD_H8"
+
+        azure_batch_name = arcpy.Parameter(
+            category="Azure settings",
+            displayName="Azure Batch account name", name="azure_batch_name",
+            datatype="GPEncryptedString", parameterType="Required", direction="Input")
 
         azure_batch_key = arcpy.Parameter(
-            category="Azure Credential",
+            category="Azure settings",
             displayName="Azure Batch account key", name="azure_batch_key",
-            datatype="GPString", parameterType="Required", direction="Input")
+            datatype="GPEncryptedString", parameterType="Required", direction="Input")
 
         azure_batch_url = arcpy.Parameter(
-            category="Azure Credential",
+            category="Azure settings",
             displayName="Azure Batch account url", name="azure_batch_url",
-            datatype="GPString", parameterType="Required", direction="Input")
+            datatype="GPEncryptedString", parameterType="Required", direction="Input")
 
         azure_storage_name = arcpy.Parameter(
-            category="Azure Credential",
+            category="Azure settings",
             displayName="Azure Storage account name", name="azure_storage_name",
-            datatype="GPString", parameterType="Required", direction="Input")
+            datatype="GPEncryptedString", parameterType="Required", direction="Input")
 
         azure_storage_key = arcpy.Parameter(
-            category="Azure Credential",
+            category="Azure settings",
             displayName="Azure Storage account key", name="azure_storage_key",
-            datatype="GPString", parameterType="Required", direction="Input")
+            datatype="GPEncryptedString", parameterType="Required", direction="Input")
 
-        azure_batch_name.value = azure_batch_key.value = azure_batch_url.value = "batch"
-        azure_storage_name.value = azure_storage_key.value = "storage"
-
-
-        params += [azure_batch_name, azure_batch_key, azure_batch_url,
+        params += [max_nodes, vm_type,
+                   azure_batch_name, azure_batch_key, azure_batch_url,
                    azure_storage_name, azure_storage_key]
+
+        # =====================================================================
+        # Misc
+        # =====================================================================
+
+        ignore = arcpy.Parameter(
+            category="Misc",
+            displayName="Skip setup if a case folder already exists",
+            name="ignore",
+            datatype="GPBoolean", parameterType="Required", direction="Input")
+        ignore.value = True
+
+        params += [ignore]
 
         return params
 
@@ -245,9 +290,9 @@ class LandSpillSimulationsOnAzure(object):
         if parameters[5].altered and not parameters[6].altered:
             parameters[6].value = parameters[5].value
 
-        if parameters[15].value != "None":
-            parameters[16].enabled = True
-            parameters[17].enabled = True
+        if parameters[15].value == "None":
+            parameters[16].enabled = False
+            parameters[17].enabled = False
 
         return
 
@@ -258,56 +303,87 @@ class LandSpillSimulationsOnAzure(object):
 
     def execute(self, parameters, messages):
         """The source code of the tool."""
+
         importlib.reload(helpers.arcgistools)
         arcpy.env.parallelProcessingFactor="75%"
 
+        # path of the working directory
         working_dir = parameters[0].valueAsText.replace("\\", "\\\\")
 
+        # xy coordinates of rupture locations (Npoints x 2)
         points = arcpy.da.FeatureClassToNumPyArray(
             parameters[1].valueAsText, ["SHAPE@X", "SHAPE@Y"],
             spatial_reference=arcpy.SpatialReference(3857))
 
+        # profile of leak rate (Nstages x 2)
         leak_profile = numpy.array(parameters[2].value, dtype=numpy.float64)
 
+        # base topography file
         base_topo = parameters[3].valueAsText
 
-        hydro_layers = parameters[4].value
+        # hydrological feature layers (1D array with size Nfeatures)
+        hydro_layers = [parameters[4].value.getRow(i).strip("' ")
+                        for i in range(parameters[4].value.rowCount)]
 
+        # finest resolution in x & y direction
         resolution = numpy.array(
             [parameters[5].value, parameters[6].value], dtype=numpy.float64)
 
+        # computational domain extent (relative to rupture points)
         domain = numpy.array(
             [parameters[7].value, parameters[8].value,
              parameters[9].value, parameters[10].value], dtype=numpy.float64)
 
-        azure = numpy.array(
-            [parameters[-5].value, parameters[-4].value, parameters[-3].value,
-             parameters[-2].value, parameters[-1].value],
-            dtype=str)
+        # fluid properties
+        ref_mu=parameters[11].value
+        ref_temp=parameters[12].value
+        amb_temp=parameters[13].value
+        density=parameters[14].value
+        evap_type=parameters[15].value
+        evap_coeffs=numpy.array([parameters[16].value, parameters[17].value])
 
-        paths = helpers.arcgistools.create_folders(working_dir, points)
-        ascs = helpers.arcgistools.prepare_topo(base_topo, points, domain, paths, True)
+        # friction
+        friction_type = parameters[18].value
+        roughness = parameters[19].value
 
+        # azure credential
+        max_nodes = parameters[-8].value
+        vm_type = parameters[-7].value
+        credential = helpers.azuretools.UserCredential(
+            parameters[-6].value, parameters[-5].value, parameters[-4].value,
+            parameters[-3].value, parameters[-2].value)
+
+        # misc
+        ignore = parameters[-1].value
+
+        # loop through each point to create each case and submit to Azure
         for i, point in enumerate(points):
-            setrun = os.path.join(paths[i], "setrun.py")
-            helpers.arcgistools.print_setrun(
-                output=setrun,
-                point=point,
-                extent=domain,
-                res=resolution,
-                topo="topo.asc",
-                ref_mu=parameters[11].value,
-                ref_temp=parameters[12].value,
-                amb_temp=parameters[13].value,
-                density=parameters[14].value,
-                NStages=leak_profile.shape[0],
-                StageTimes=leak_profile[:, 0],
-                StageRates=leak_profile[:, 1],
-                evap_type=parameters[15].value,
-                evap_coeffs=numpy.array([parameters[16].value, parameters[17].value]))
 
-            helpers.arcgistools.print_roughness(
-                os.path.join(paths[i], "roughness.txt"),
-                point, domain, 0.1)
+            # create case folder
+            arcpy.AddMessage("Creating case folder for point {}".format(point))
+            case_path = helpers.arcgistools.create_single_folder(
+                working_dir, point, ignore)
+
+            # create topography ASCII file
+            arcpy.AddMessage("Creating topo input for point {}".format(point))
+            topo = helpers.arcgistools.prepare_single_topo(
+                base_topo, point, domain, case_path, ignore)
+
+            # create ASCII rasters for hydorlogical files
+            arcpy.AddMessage("Creating hydro input for point {}".format(point))
+            hydros = helpers.arcgistools.prepare_single_point_hydros(
+                hydro_layers, point, domain, min(resolution), case_path, ignore)
+
+            # create setrun.py and roughness
+            arcpy.AddMessage("Creating GeoClaw config for point {}".format(point))
+            setrun, roughness_file = helpers.arcgistools.write_setrun(
+                out_dir=case_path, point=point, extent=domain, res=resolution,
+                ref_mu=ref_mu, ref_temp=ref_temp, amb_temp=amb_temp,
+                density=density, leak_profile=leak_profile,
+                evap_type=evap_type, evap_coeffs=evap_coeffs,
+                n_hydros = len(hydros),
+                friction_type=friction_type, roughness=roughness)
+
+            arcpy.AddMessage("Done preparing point {}".format(point))
 
         return
