@@ -115,12 +115,18 @@ class Mission:
             print(self.monitor.report_mission(), file=self.output)
 
             for task, state in task_states.items():
+
                 if state == "completed" and task not in self.controller.downloaded:
                     print("Taks {} completed. Downloading.".format(task), file=self.output)
                     self.controller.download_dir(task)
                     print("Downloading done.", file=self.output)
 
-            unfinished = task_statistic[0] - task_statistic[2]
+                if state == "failed" and task not in self.controller.downloaded:
+                    print("Taks {} failed. Downloading.".format(task), file=self.output)
+                    self.controller.download_dir(task)
+                    print("Downloading done.", file=self.output)
+
+            unfinished = task_statistic[0] - task_statistic[2] - task_statistic[3]
 
             if unfinished == 0:
                 break
@@ -143,3 +149,16 @@ class Mission:
         self.controller.delete_pool()
 
         logging.info("Mission %s completed.", self.info.name)
+
+    def add_task(self, task):
+        """Add additional task to the task scheduler."""
+
+        task_real_name = os.path.basename(os.path.abspath(task))
+        task_status = self.monitor.report_task_status(task_real_name)
+
+        if task_status == "N/A":
+            print("Adding/Updating task {}".format(task), file=self.output)
+            self.controller.add_task(task)
+            self.info.add_task(task)
+        else:
+            print("Task {} exist. Skip.".format(task), file=self.output)
