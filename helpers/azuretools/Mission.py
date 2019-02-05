@@ -49,6 +49,9 @@ class Mission:
         self.info = MissionInfo(
             mission_name, min(n_nodes_max, len(tasks)), tasks, vm_type)
 
+        # backup the value of n_node_max
+        self.max_nodes = n_nodes_max
+
         # mission controller
         self.controller = MissionController(self.credential, self.info)
 
@@ -131,9 +134,9 @@ class Mission:
             if unfinished == 0:
                 break
 
-            if resizing and unfinished < self.info.n_nodes:
+            if resizing and self.info.n_nodes != min(unfinished, self.max_nodes):
                 print("\nResizing the pool.", file=self.output)
-                self.info.n_nodes = unfinished
+                self.info.n_nodes = min(self.max_nodes, unfinished)
                 self.controller.create_pool()
 
             time.sleep(cycle_time)
