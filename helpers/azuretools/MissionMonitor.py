@@ -128,12 +128,7 @@ class MissionMonitor():
             the_task = self.batch_client.task.get(
                 job_id=self.info.job_name, task_id=task_name)
         except azure.batch.models.BatchErrorException as err:
-            if err.message.value.startswith("The specified job does not exist"):
-                return "N/A"
-            elif err.message.value.startswith("The specified task does not exist"):
-                return "N/A"
-            else:
-                raise
+            return "N/A"
 
         if the_task.state is azure.batch.models.TaskState.completed:
             if the_task.execution_info.failure_info is not None:
