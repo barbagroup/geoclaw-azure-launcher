@@ -322,8 +322,12 @@ class LandSpillSimulationsOnAzure(object):
         base_topo = parameters[3].valueAsText
 
         # hydrological feature layers (1D array with size Nfeatures)
-        hydro_layers = [parameters[4].value.getRow(i).strip("' ")
-                        for i in range(parameters[4].value.rowCount)]
+        if parameters[4].value is None:
+            hydro_layers = []
+        else:
+            hydro_layers = [
+                parameters[4].value.getRow(i).strip("' ")
+                for i in range(parameters[4].value.rowCount)]
 
         # finest resolution in x & y direction
         resolution = numpy.array(
