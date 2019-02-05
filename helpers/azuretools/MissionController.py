@@ -486,7 +486,6 @@ class MissionController():
             "cp -r $AZ_BATCH_TASK_WORKING_DIR/{} ./ && ".format(case) + \
             "python run.py {} && ".format(case) + \
             "python createnc.py {} && ".format(case) + \
-            "python plotdepths.py --border {} && ".format(case) + \
             "cp -r ./{} $AZ_BATCH_TASK_WORKING_DIR".format(case) + \
             "\""
 
