@@ -36,6 +36,10 @@ def create_single_folder(workdir, xy, ignore=True):
     x = "{}{}".format(numpy.abs(xy[0]), "E" if xy[0]>=0 else "W")
     y = "{}{}".format(numpy.abs(xy[1]), "N" if xy[1]>=0 else "S")
 
+    # Azure task does not accept .(a dot) in task names, so replace with _
+    x = x.replace(".", "_")
+    y = y.replace(".", "_")
+
     # final case folder path & name
     target = os.path.join(workdir, "{}{}".format(x, y))
 
