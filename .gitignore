@@ -8,3 +8,5 @@ credential.txt
 **/*.asc
 **/utah_dem_topo_3.txt
 **/*.xml
+**/stdout.txt
+**/stderr.txt

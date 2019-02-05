@@ -480,6 +480,16 @@ class MissionController():
                     container= \
                     azure.batch.models.OutputFileBlobContainerDestination(
                         container_url=self.container_url,
+                        path="{}".format(case)))),
+            azure.batch.models.OutputFile(
+                file_pattern="$AZ_BATCH_TASK_DIR/std*.txt",
+                upload_options=azure.batch.models.OutputFileUploadOptions(
+                    upload_condition= \
+                    azure.batch.models.OutputFileUploadCondition.task_completion),
+                destination=azure.batch.models.OutputFileDestination(
+                    container= \
+                    azure.batch.models.OutputFileBlobContainerDestination(
+                        container_url=self.container_url,
                         path="{}".format(case))))]
 
         command = "/bin/bash -c \"" + \
