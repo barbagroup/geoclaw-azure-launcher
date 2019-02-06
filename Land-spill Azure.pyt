@@ -27,23 +27,16 @@ class Toolbox(object):
         self.alias = "landspill"
 
         # List of tool classes associated with this toolbox
-        self.tools = [LandSpillSimulationsOnAzure]
+        self.tools = [PrepareGeoClawCases, CreateAzureCredentialFile]
 
-
-class LandSpillSimulationsOnAzure(object):
-    """Run Lans-Spill Simulations on Azure
-
-    Create simulation case folders on local machine, upload cases to Azure, run
-    simulations on Azure, and then download results."
-    """
+class PrepareGeoClawCases(object):
+    """Prepare case folders, configurations, and input files for GeoClaw."""
 
     def __init__(self):
         """Define the tool (tool name is the name of the class)."""
-        self.label = "Run Lans-Spill Simulations on Azure"
+        self.label = "CreateGeoClawCases"
         self.description = \
-            "Create simulation case folders on local machine, " + \
-            "upload cases to Azure, run simulations on Azure, " + \
-            "and then download results."
+            "Prepare case folders, configurations, and input files for GeoClaw."
 
         self.canRunInBackground = False # no effect in ArcGIS Pro
 
@@ -210,54 +203,6 @@ class LandSpillSimulationsOnAzure(object):
         params += [friction_type, roughness]
 
         # =====================================================================
-        # Azure section
-        # =====================================================================
-
-        # maximum number of computing nodes
-        max_nodes = arcpy.Parameter(
-            category="Azure settings",
-            displayName="Maximum number of computing nodes", name="max_nodes",
-            datatype="GPLong", parameterType="Required", direction="Input")
-        max_nodes.value = 2
-
-        vm_type = arcpy.Parameter(
-            category="Azure settings",
-            displayName="Computing node type", name="vm_type",
-            datatype="GPString", parameterType="Required", direction="Input")
-        vm_type.filter.type = "ValueList"
-        vm_type.filter.list = ["STANDARD_A1_V2", "STANDARD_H8", "STANDARD_H16"]
-        vm_type.value = "STANDARD_H8"
-
-        azure_batch_name = arcpy.Parameter(
-            category="Azure settings",
-            displayName="Azure Batch account name", name="azure_batch_name",
-            datatype="GPEncryptedString", parameterType="Required", direction="Input")
-
-        azure_batch_key = arcpy.Parameter(
-            category="Azure settings",
-            displayName="Azure Batch account key", name="azure_batch_key",
-            datatype="GPEncryptedString", parameterType="Required", direction="Input")
-
-        azure_batch_url = arcpy.Parameter(
-            category="Azure settings",
-            displayName="Azure Batch account url", name="azure_batch_url",
-            datatype="GPEncryptedString", parameterType="Required", direction="Input")
-
-        azure_storage_name = arcpy.Parameter(
-            category="Azure settings",
-            displayName="Azure Storage account name", name="azure_storage_name",
-            datatype="GPEncryptedString", parameterType="Required", direction="Input")
-
-        azure_storage_key = arcpy.Parameter(
-            category="Azure settings",
-            displayName="Azure Storage account key", name="azure_storage_key",
-            datatype="GPEncryptedString", parameterType="Required", direction="Input")
-
-        params += [max_nodes, vm_type,
-                   azure_batch_name, azure_batch_key, azure_batch_url,
-                   azure_storage_name, azure_storage_key]
-
-        # =====================================================================
         # Misc
         # =====================================================================
 
@@ -350,15 +295,12 @@ class LandSpillSimulationsOnAzure(object):
         friction_type = parameters[18].value
         roughness = parameters[19].value
 
-        # azure credential
-        max_nodes = parameters[-8].value
-        vm_type = parameters[-7].value
-        credential = helpers.azuretools.UserCredential(
-            parameters[-6].value, parameters[-5].value, parameters[-4].value,
-            parameters[-3].value, parameters[-2].value)
-
         # misc
         ignore = parameters[-1].value
+
+        # initialize an Azure mission
+        # mission = helpers.azuretools.Mission(
+        #     credential, "landspill-azure", max_nodes, [], vm_type)
 
         # loop through each point to create each case and submit to Azure
         for i, point in enumerate(points):
@@ -389,5 +331,114 @@ class LandSpillSimulationsOnAzure(object):
                 friction_type=friction_type, roughness=roughness)
 
             arcpy.AddMessage("Done preparing point {}".format(point))
+
+        return
+
+class CreateAzureCredentialFile(object):
+    """Create an encrpyted Azure credential file."""
+
+    def __init__(self):
+        """Define the tool (tool name is the name of the class)."""
+        self.label = "NewEncrpytedAzureCredential"
+        self.description = "Create an encrpyted Azure credential file."
+        self.canRunInBackground = False # no effect in ArcGIS Pro
+
+    def getParameterInfo(self):
+        """Define parameter definitions"""
+
+        # 0, working directory
+        working_dir = arcpy.Parameter(
+            displayName="Working Directory", name="working_dir",
+            datatype="DEWorkspace", parameterType="Required", direction="Input")
+
+        working_dir.defaultEnvironmentName = "scratchFolder"
+
+        # 1, output file name
+        output_file = arcpy.Parameter(
+            displayName="Output credential file name", name="output_file",
+            datatype="GPString", parameterType="Required", direction="Input")
+
+        output_file.value = "azure_cred.bin"
+
+        # 2: Batch account name
+        azure_batch_name = arcpy.Parameter(
+            displayName="Azure Batch account name", name="azure_batch_name",
+            datatype="GPStringHidden", parameterType="Required", direction="Input")
+
+        # 3: Batch account key
+        azure_batch_key = arcpy.Parameter(
+            displayName="Azure Batch account key", name="azure_batch_key",
+            datatype="GPStringHidden", parameterType="Required", direction="Input")
+
+        # 4: Batch account URL
+        azure_batch_URL = arcpy.Parameter(
+            displayName="Azure Batch account URL", name="azure_batch_URL",
+            datatype="GPStringHidden", parameterType="Required", direction="Input")
+
+        # 5: Storage account name
+        azure_storage_name = arcpy.Parameter(
+            displayName="Azure Storage account name", name="azure_storage_name",
+            datatype="GPStringHidden", parameterType="Required", direction="Input")
+
+        # 6: Storage account key
+        azure_storage_key = arcpy.Parameter(
+            displayName="Azure Storage account key", name="azure_storage_key",
+            datatype="GPStringHidden", parameterType="Required", direction="Input")
+
+        # 7: Encryption passcode
+        passcode = arcpy.Parameter(
+            displayName="Passcode", name="passcode",
+            datatype="GPStringHidden", parameterType="Required", direction="Input")
+
+        # 8: Encryption passcode confirm
+        confirm_passcode = arcpy.Parameter(
+            displayName="Confirm passcode", name="confirm_passcode",
+            datatype="GPStringHidden", parameterType="Required", direction="Input")
+
+        params = [working_dir, output_file,
+                  azure_batch_name, azure_batch_key, azure_batch_URL,
+                  azure_storage_name, azure_storage_key,
+                  passcode, confirm_passcode]
+
+        return params
+
+    def isLicensed(self):
+        """Set whether tool is licensed to execute."""
+        return True
+
+    def updateParameters(self, parameters):
+        """Modify the values and properties of parameters before internal
+        validation is performed.  This method is called whenever a parameter
+        has been changed."""
+        return
+
+    def updateMessages(self, parameters):
+        """Modify the messages created by internal validation for each tool
+        parameter.  This method is called after internal validation."""
+
+        if parameters[7].value != parameters[8].value:
+            parameters[8].setErrorMessage("Passcode does not match.")
+
+        return
+
+    def execute(self, parameters, messages):
+        """The source code of the tool."""
+
+        # path of the working directory
+        working_dir = parameters[0].valueAsText.replace("\\", "\\\\")
+
+        # output file name
+        output = parameters[1].value
+
+        # azure credential
+        credential = helpers.azuretools.UserCredential(
+            parameters[2].value, parameters[3].value, parameters[4].value,
+            parameters[5].value, parameters[6].value)
+
+        # passcode
+        passcode = parameters[7].value
+
+        # write the file
+        credential.write_encrypted(passcode, os.path.join(working_dir, output))
 
         return
