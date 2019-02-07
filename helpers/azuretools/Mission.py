@@ -68,6 +68,8 @@ class Mission:
 
         # logging
         if log:
+            if os.path.isfile("{}.log".format(mission_name)):
+                os.remove("{}.log".format(mission_name))
             logging.basicConfig(
                 filename="{}.log".format(mission_name), level=logging.DEBUG,
                 format="[%(asctime)s][%(levelname)s][%(filename)s] %(message)s\n")
@@ -84,29 +86,32 @@ class Mission:
         """__str__"""
         pass
 
-    def start(self):
+    def _log_info(self, msg, *args):
+        """A helper function for logging and printing info."""
+
+        logging.info(msg, *args)
+
+        msg = msg.replace("%s", "{}")
+        print(msg.format(*args), file=self.output)
+
+    def start(self, ignore_local_nonexist=True, ignore_azure_exist=True):
         """Start the mission."""
 
-        logging.info("Starting mission %s.", self.info.name)
+        self._log_info("Starting mission %s.", self.info.name)
 
-        print("Creating/Updating the pool", file=self.output)
+        self._log_info("Creating/Updating the pool")
         self.controller.create_pool()
-        print("Creating/Updating the job", file=self.output)
+
+        self._log_info("Creating/Updating the job")
         self.controller.create_job()
-        print("Creating/Updating the container", file=self.output)
+
+        self._log_info("Creating/Updating the container")
         self.controller.create_storage_container()
 
         for task in self.info.tasks:
-            task_real_name = os.path.basename(os.path.abspath(task))
-            task_status = self.monitor.report_task_status(task_real_name)
+            self.add_task(task, ignore_local_nonexist, ignore_azure_exist)
 
-            if task_status == "N/A":
-                print("Adding/Updating task {}".format(task), file=self.output)
-                self.controller.add_task(task)
-            else:
-                print("Task {} exist. Skip.".format(task), file=self.output)
-
-        logging.info("Mission %s started.", self.info.name)
+        self._log_info("Mission %s started.", self.info.name)
 
     def monitor_wait_download(self, cycle_time=10, resizing=True, download=True):
         """Monitor progress and wait until all tasks done."""
@@ -153,15 +158,37 @@ class Mission:
 
         logging.info("Mission %s completed.", self.info.name)
 
-    def add_task(self, task):
+    def add_task(self, task, ignore_local_nonexist=True, ignore_azure_exist=True):
         """Add additional task to the task scheduler."""
 
         task_real_name = os.path.basename(os.path.abspath(task))
         task_status = self.monitor.report_task_status(task_real_name)
 
-        if task_status == "N/A":
-            print("Adding/Updating task {}".format(task), file=self.output)
-            self.controller.add_task(task)
-            self.info.add_task(task)
+        # handling cases that the folder does not exist locally
+        if not os.path.isdir(os.path.abspath(task)):
+            if ignore_local_nonexist:
+                self._log_info(
+                    "Case folder %s not found. Skip.", os.path.abspath(task))
+                return "Local folder not found, Skip"
+            else:
+                logging.error("Case folder %s not found.", os.path.abspath(task))
+                raise FileNotFoundError(
+                    "Case folder not found: {}".format(os.path.abspath(task)))
+
+        # local caase folder exists but also exist on Azure
+        if task_status != "N/A":
+            if ignore_azure_exist:
+                self._log_info("Case %s exists on Azure. Skip.", task)
+                self.info.add_task(task, True)
+                return "Task already exists on Azure. Skip"
+            else:
+                logging.error("Case %s exists on Azure.", task)
+                raise FileExistsError(
+                    "Case already exists on Azure: {}".format(task))
+        # local case folder exists and does not exist on Azure
         else:
-            print("Task {} exist. Skip.".format(task), file=self.output)
+            self._log_info("Adding/Updating task %s", task)
+            self.controller.add_task(task, ignore_azure_exist)
+            self.info.add_task(task)
+
+        return "Done"

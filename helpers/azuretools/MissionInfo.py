@@ -58,7 +58,7 @@ class MissionInfo():
 
         return s
 
-    def add_task(self, case, err=False):
+    def add_task(self, case, ignore=True):
         """Add a task to the mission's task list.
 
         Add a task to the mission's task list. Note: this does not submit the
@@ -69,11 +69,11 @@ class MissionInfo():
 
         Args:
             case [in]: the name of case directory
-            err [optional]: whether to raise an error when the task exists
+            ignore [optional]: whether to ignore if the task exists in the list
         """
 
         if case in self.tasks:
-            if err:
+            if not ignore:
                 raise RuntimeError("The case already exists in the task list.")
             else:
                 return

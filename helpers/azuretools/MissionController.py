@@ -279,7 +279,7 @@ class MissionController():
 
         logging.info("Deletion command issued.")
 
-    def upload_dir(self, dir_path):
+    def upload_dir(self, dir_path, ignore_exist=False):
         """Upload a directory to the mission container.
 
         Args:
@@ -291,7 +291,7 @@ class MissionController():
         dir_base_name = os.path.basename(dir_path)
 
         # check if the base name conflicts any uploaded cases
-        if dir_base_name in self.uploaded_dirs.keys():
+        if dir_base_name in self.uploaded_dirs.keys() and not ignore_exist:
             logging.error(
                 "A case with the same base name %s already exists in the \
                  container. Can't upload it.", dir_base_name)
@@ -446,7 +446,7 @@ class MissionController():
 
             os.remove("uploaded_dirs.dat")
 
-    def add_task(self, case):
+    def add_task(self, case, ignore_exist=False):
         """Add a task to the mission's job (i.e., task scheduler).
 
         Args:
@@ -454,7 +454,7 @@ class MissionController():
         """
 
         # upload to the storage container
-        self.upload_dir(case)
+        self.upload_dir(case, ignore_exist)
 
         # get the full and absolute path
         case_path = os.path.abspath(os.path.normpath(case))
