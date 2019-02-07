@@ -639,13 +639,13 @@ class RunCasesOnAzure(object):
             output=os.devnull, vm_type=vm_type)
 
         # start mission (creating pool, storage, scheduler)
-        mission.start(ignore_local_nonexist, ignore_azure_exist)
+        mission.start(ignore_local_nonexist, ignore_azure_exist, False)
 
         # loop through each point to add case to Azure task scheduler
         for i, point in enumerate(points):
 
-            x = "{}{}".format(numpy.abs(point[0]), "E" if point[0]>=0 else "W")
-            y = "{}{}".format(numpy.abs(point[1]), "N" if point[1]>=0 else "S")
+            x = "{}{}".format(numpy.abs(point[0]), "E" if point[0] >= 0 else "W")
+            y = "{}{}".format(numpy.abs(point[1]), "N" if point[1] >= 0 else "S")
             x = x.replace(".", "_")
             y = y.replace(".", "_")
             case = os.path.join(working_dir, "{}{}".format(x, y))
@@ -655,10 +655,10 @@ class RunCasesOnAzure(object):
             arcpy.AddMessage(result)
 
             if i == (max_nodes - 1):
-                mission.force_resize(max_nodes)
+                mission.adapt_size()
 
         if points.shape[0] < max_nodes:
-            mission.force_resize(points.shape[0])
+            mission.adapt_size()
 
         return
 

@@ -33,12 +33,12 @@ if __name__ == "__main__":
         user_data, "test", 4,
         [os.path.join(script_dir_path, "test_cases/test_case_1")])
 
-    mission.start(False, False)
+    mission.start(False, True)
 
     # test if adding additional task works
     mission.add_task(
         os.path.join(script_dir_path, "test_cases/test_case_2"),
-        False, False)
+        False, True)
 
     mission.monitor_wait_download()
     mission.clear_resources()

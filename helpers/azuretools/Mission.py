@@ -101,13 +101,18 @@ class Mission:
         msg = msg.replace("%s", "{}")
         print(msg.format(*args), file=self.output)
 
-    def start(self, ignore_local_nonexist=True, ignore_azure_exist=True):
+    def start(self, ignore_local_nonexist=True,
+              ignore_azure_exist=True, resizing=False):
         """Start the mission."""
 
         self._log_info("Starting mission %s.", self.info.name)
 
         self._log_info("Creating/Updating the pool")
         self.controller.create_pool()
+
+        if resizing:
+            self._log_info("Resizing the pool")
+            self.controller.resize_pool(min(self.max_nodes, len(self.info.tasks)))
 
         self._log_info("Creating/Updating the job")
         self.controller.create_job()
@@ -119,12 +124,6 @@ class Mission:
             self.add_task(task, ignore_local_nonexist, ignore_azure_exist)
 
         self._log_info("Mission %s started.", self.info.name)
-
-    def force_resize(self, n_nodes):
-        """Force resizing the pool."""
-
-        self.info.n_nodes = n_nodes
-        self.controller.create_pool()
 
     def monitor_wait_download(self, cycle_time=10, resizing=True, download=True):
         """Monitor progress and wait until all tasks done."""
@@ -138,12 +137,12 @@ class Mission:
             for task, state in task_states.items():
 
                 if state == "completed" and task not in self.controller.downloaded:
-                    print("Taks {} completed. Downloading.".format(task), file=self.output)
+                    print("Task {} completed. Downloading.".format(task), file=self.output)
                     self.controller.download_dir(task)
                     print("Downloading done.", file=self.output)
 
                 if state == "failed" and task not in self.controller.downloaded:
-                    print("Taks {} failed. Downloading.".format(task), file=self.output)
+                    print("Task {} failed. Downloading.".format(task), file=self.output)
                     self.controller.download_dir(task)
                     print("Downloading done.", file=self.output)
 
@@ -154,10 +153,16 @@ class Mission:
 
             if resizing and self.info.n_nodes != min(unfinished, self.max_nodes):
                 print("\nResizing the pool.", file=self.output)
-                self.info.n_nodes = min(self.max_nodes, unfinished)
-                self.controller.create_pool()
+                self.controller.resize_pool(min(unfinished, self.max_nodes))
 
             time.sleep(cycle_time)
+
+    def adapt_size(self):
+        """Automatically resize the pool."""
+
+        task_statistic = self.monitor.report_job_task_overview()
+        unfinished = task_statistic[0] - task_statistic[2] - task_statistic[3]
+        self.controller.resize_pool(min(unfinished, self.max_nodes))
 
     def clear_resources(self):
         """Delete everything on Azure."""

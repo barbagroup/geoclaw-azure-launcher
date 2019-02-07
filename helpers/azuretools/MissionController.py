@@ -62,72 +62,93 @@ class MissionController():
 
         # if the pool already exists (it does not mean it's ready)
         if self.batch_client.pool.exists(pool_id=self.info.pool_name):
-            logging.info("Pool %s already exists.", self.info.pool_name)
-
-            # get the number of nodes in the pool on Azure
+            # update info.n_nodes
             pool_info = self.batch_client.pool.get(self.info.pool_name)
+            self.info.n_nodes = pool_info.target_dedicated_nodes
 
-            # check if the size of the pool matches the self
-            if pool_info.target_dedicated_nodes != self.info.n_nodes:
-                logging.info(
-                    "Pool %s does not have the required number of nodes. \
-                     Issuing a resizing command.",
-                    self.info.pool_name)
-
-                # an alias for shorter code
-                pool_resizing = azure.batch.models.AllocationState.resizing
-                pool_steady = azure.batch.models.AllocationState.steady
-
-                # if the pool is under resizing, stop the resizing first
-                if pool_info.allocation_state is pool_resizing:
-                    self.batch_client.pool.stop_resize(self.info.pool_name)
-
-                    while pool_info.allocation_state is not pool_steady:
-                        time.sleep(2) # wait for 2 seconds
-                        # get updated information of the pool
-                        pool_info = self.batch_client.pool.get(self.info.pool_name)
-
-                # now resizing
-                self.batch_client.pool.resize(
-                    pool_id=self.info.pool_name,
-                    pool_resize_parameter=azure.batch.models.PoolResizeParameter(
-                        target_dedicated_nodes=self.info.n_nodes,
-                        node_deallocation_option="requeue"))
-
-                logging.info("Resizing command issued.")
+            logging.info("Pool %s already exists.", self.info.pool_name)
+            return "Already exist"
 
         # if the batch client is not aware of this pool
-        else:
-            logging.info("Issuing creation to pool %s.", self.info.pool_name)
+        logging.info("Issuing creation to pool %s.", self.info.pool_name)
 
-            # image
-            image = azure.batch.models.ImageReference(
-                publisher="microsoft-azure-batch",
-                offer="ubuntu-server-container",
-                sku="16-04-lts",
-                version="latest")
+        # image
+        image = azure.batch.models.ImageReference(
+            publisher="microsoft-azure-batch",
+            offer="ubuntu-server-container",
+            sku="16-04-lts",
+            version="latest")
 
-            # prefetched Docker image
-            container_conf = azure.batch.models.ContainerConfiguration(
-                container_image_names=['barbagroup/landspill:applications'])
+        # prefetched Docker image
+        container_conf = azure.batch.models.ContainerConfiguration(
+            container_image_names=['barbagroup/landspill:applications'])
 
-            # vm setting
-            vm_conf = azure.batch.models.VirtualMachineConfiguration(
-                image_reference=image,
-                container_configuration=container_conf,
-                node_agent_sku_id="batch.node.ubuntu 16.04")
+        # vm setting
+        vm_conf = azure.batch.models.VirtualMachineConfiguration(
+            image_reference=image,
+            container_configuration=container_conf,
+            node_agent_sku_id="batch.node.ubuntu 16.04")
 
-            # pool setting
-            pool_conf = azure.batch.models.PoolAddParameter(
-                id=self.info.pool_name,
-                virtual_machine_configuration=vm_conf,
-                vm_size=self.info.vm_type,
-                target_dedicated_nodes=self.info.n_nodes)
+        # pool setting
+        pool_conf = azure.batch.models.PoolAddParameter(
+            id=self.info.pool_name,
+            virtual_machine_configuration=vm_conf,
+            vm_size=self.info.vm_type,
+            target_dedicated_nodes=self.info.n_nodes)
 
-            # create the pool
-            self.batch_client.pool.add(pool_conf)
+        # create the pool
+        self.batch_client.pool.add(pool_conf)
 
-            logging.info("Creation command issued.")
+        logging.info("Creation command issued.")
+
+        return "Done"
+
+    def resize_pool(self, n_nodes):
+        """Resize the pool."""
+
+        # if the pool already exists (it does not mean it's ready)
+        if not self.batch_client.pool.exists(pool_id=self.info.pool_name):
+            logging.error("Pool %s does not exist.", self.info.pool_name)
+            raise RuntimeError(
+                "Pool {} does not exist.".format(self.info.pool_name))
+
+        # get the number of nodes in the pool on Azure
+        pool_info = self.batch_client.pool.get(self.info.pool_name)
+
+        # check if the size of the pool matches the self
+        if pool_info.target_dedicated_nodes == n_nodes: # no change, skip
+            logging.info(
+                "Pool %s already has the specified number of nodes. Skip.",
+                self.info.pool_name)
+            return "No change"
+
+        logging.info("Issuing a resizing command to pool %s.", self.info.pool_name)
+
+        # an alias for shorter code
+        pool_resizing = azure.batch.models.AllocationState.resizing
+        pool_steady = azure.batch.models.AllocationState.steady
+
+        # if the pool is under resizing, stop the resizing first
+        if pool_info.allocation_state is pool_resizing:
+            self.batch_client.pool.stop_resize(self.info.pool_name)
+
+            while pool_info.allocation_state is not pool_steady:
+                time.sleep(2) # wait for 2 seconds
+                # get updated information of the pool
+                pool_info = self.batch_client.pool.get(self.info.pool_name)
+
+        # now resizing
+        self.batch_client.pool.resize(
+            pool_id=self.info.pool_name,
+            pool_resize_parameter=azure.batch.models.PoolResizeParameter(
+                target_dedicated_nodes=n_nodes,
+                node_deallocation_option="requeue"))
+
+        self.info.n_nodes = n_nodes
+
+        logging.info("Resizing command issued to pool %s.", self.info.pool_name)
+
+        return "Done"
 
     def delete_pool(self):
         """Delete a pool on Azure based on the content set in self."""
@@ -137,10 +158,13 @@ class MissionController():
         # if the pool exists, issue a delete command
         if self.batch_client.pool.exists(pool_id=self.info.pool_name):
             self.batch_client.pool.delete(self.info.pool_name)
-            logging.info("Deletion command issued.")
+            logging.info("Deletion command issued to pool %s.", self.info.pool_name)
+
+            return "Done"
         else:
             logging.info(
                 "Pool %s does not exist. Skip deletion.", self.info.pool_name)
+            return "Not exist"
 
     def create_storage_container(self):
         """Create a blob container for this mission."""
@@ -238,6 +262,8 @@ class MissionController():
             self.container_url.replace("restype=container&", "")
         logging.info("SAS URL for %s obtained.", self.info.container_name)
 
+        return "Done"
+
     def delete_storage_container(self):
         """delete_all_data"""
 
@@ -248,6 +274,8 @@ class MissionController():
             container_name=self.info.container_name, fail_not_exist=True)
 
         logging.info("Deletion issued.")
+
+        return "Done"
 
     def create_job(self):
         """Create a job (i.e. task scheduler) for this mission."""
@@ -270,6 +298,8 @@ class MissionController():
             else:
                 raise
 
+        return "Done"
+
     def delete_job(self):
         """Delete the mission job (i.e. task scheduler)."""
 
@@ -278,6 +308,8 @@ class MissionController():
         self.batch_client.job.delete(self.info.job_name)
 
         logging.info("Deletion command issued.")
+
+        return "Done"
 
     def upload_dir(self, dir_path, ignore_exist=False):
         """Upload a directory to the mission container.
@@ -333,6 +365,8 @@ class MissionController():
         logging.info("Done uploading uploaded_dirs.dat")
 
         os.remove("uploaded_dirs.dat")
+
+        return "Done"
 
     def download_dir(self, dir_path, ignore_downloaded=True, ignore_not_exist=True):
         """Download a directory from the mission blob container."""
