@@ -347,7 +347,7 @@ class MissionController():
 
         if ignore_downloaded and (dir_base_name in self.downloaded):
             logging.info("Directory %s already downloaded. Skip.", dir_path)
-            return
+            return "Already downloaded. Skip."
 
         logging.info("Downloading directory %s.", dir_path)
 
@@ -361,7 +361,7 @@ class MissionController():
                 logging.warning(
                     "Directory %s is not in the container. SKIP.", dir_path)
 
-                return
+                return "Not found on Azure. Skip."
 
         blob_list = self.storage_client.list_blobs(
             container_name=self.info.container_name,
@@ -396,6 +396,8 @@ class MissionController():
         logging.info("Done uploading downloaded.dat")
 
         os.remove("downloaded.dat")
+
+        return "Done."
 
     def delete_dir(self, dir_path, ignore_not_exist=True):
         """Delete a directory from the mission's container."""
