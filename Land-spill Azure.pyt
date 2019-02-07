@@ -27,7 +27,8 @@ class Toolbox(object):
         self.alias = "landspill"
 
         # List of tool classes associated with this toolbox
-        self.tools = [PrepareGeoClawCases, CreateAzureCredentialFile]
+        self.tools = [PrepareGeoClawCases, CreateAzureCredentialFile,
+                      RunCasesOnAzure]
 
 class PrepareGeoClawCases(object):
     """Prepare case folders, configurations, and input files for GeoClaw."""
@@ -54,7 +55,7 @@ class PrepareGeoClawCases(object):
             category="Basic", displayName="Working Directory", name="working_dir",
             datatype="DEWorkspace", parameterType="Required", direction="Input")
 
-        working_dir.defaultEnvironmentName = "scratchFolder"
+        working_dir.value = arcpy.env.scratchFolder
 
         # 1, basic: rupture point
         rupture_point = arcpy.Parameter(
@@ -351,7 +352,7 @@ class CreateAzureCredentialFile(object):
             displayName="Working Directory", name="working_dir",
             datatype="DEWorkspace", parameterType="Required", direction="Input")
 
-        working_dir.defaultEnvironmentName = "scratchFolder"
+        working_dir.value = arcpy.env.scratchFolder
 
         # 1, output file name
         output_file = arcpy.Parameter(
@@ -440,5 +441,223 @@ class CreateAzureCredentialFile(object):
 
         # write the file
         credential.write_encrypted(passcode, os.path.join(working_dir, output))
+
+        return
+
+class RunCasesOnAzure(object):
+    """Submit and run cases on Azure."""
+
+    def __init__(self):
+        """Define the tool (tool name is the name of the class)."""
+        self.label = "RunCasesOnAzure"
+        self.description =  "Submit and run cases on Azure."
+        self.canRunInBackground = False # no effect in ArcGIS Pro
+
+    def getParameterInfo(self):
+        """Define parameter definitions"""
+
+        params = []
+
+        # 0, basic: working directory
+        working_dir = arcpy.Parameter(
+            displayName="Working Directory", name="working_dir",
+            datatype="DEWorkspace", parameterType="Required", direction="Input")
+
+        working_dir.value = arcpy.env.scratchFolder
+
+        # 1, basic: rupture point
+        rupture_point = arcpy.Parameter(
+            displayName="Rupture point", name="rupture_point",
+            datatype="GPFeatureLayer", parameterType="Required", direction="Input")
+
+        rupture_point.filter.list = ["Point"]
+
+        # 2: maximum number of computing nodes
+        max_nodes = arcpy.Parameter(
+            displayName="Maximum number of computing nodes", name="max_nodes",
+            datatype="GPLong", parameterType="Required", direction="Input")
+
+        max_nodes.value = 2
+
+        # 3: vm type
+        vm_type = arcpy.Parameter(
+            displayName="Computing node type", name="vm_type",
+            datatype="GPString", parameterType="Required", direction="Input")
+
+        vm_type.filter.type = "ValueList"
+        vm_type.filter.list = ["STANDARD_A1_V2", "STANDARD_H8", "STANDARD_H16"]
+        vm_type.value = "STANDARD_H8"
+
+        # 4: credential type
+        cred_type = arcpy.Parameter(
+            displayName="Azure credential", name="cred_type",
+            datatype="GPString", parameterType="Required", direction="Input")
+
+        cred_type.filter.type = "ValueList"
+        cred_type.filter.list = ["Encrypted file", "Manual input"]
+        cred_type.value = "Encrypted file"
+
+        # 5: encrypted credential file
+        cred_file = arcpy.Parameter(
+            displayName="Encrypted credential file", name="cred_file",
+            datatype="DEFile", parameterType="Optional", direction="Input",
+            enabled=True)
+
+        cred_file.value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
+
+        # 6: passcode
+        passcode = arcpy.Parameter(
+            displayName="Passcode for the credential file", name="passcode",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=True)
+
+        # 7: Batch account name
+        azure_batch_name = arcpy.Parameter(
+            displayName="Azure Batch account name", name="azure_batch_name",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 8: Batch account key
+        azure_batch_key = arcpy.Parameter(
+            displayName="Azure Batch account key", name="azure_batch_key",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 9: Batch account URL
+        azure_batch_URL = arcpy.Parameter(
+            displayName="Azure Batch account URL", name="azure_batch_URL",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 10: Storage account name
+        azure_storage_name = arcpy.Parameter(
+            displayName="Azure Storage account name", name="azure_storage_name",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 11: Storage account key
+        azure_storage_key = arcpy.Parameter(
+            displayName="Azure Storage account key", name="azure_storage_key",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        params += [working_dir, rupture_point, max_nodes, vm_type,
+                   cred_type, cred_file, passcode,
+                   azure_batch_name, azure_batch_key, azure_batch_URL,
+                   azure_storage_name, azure_storage_key]
+
+        # =====================================================================
+        # Misc
+        # =====================================================================
+
+        # 12: Skip a case if its case folder doesn't exist locally
+        ignore_local_nonexist = arcpy.Parameter(
+            displayName="Skip submitting/running a case if its case folder " + \
+                        "doesn't exist on local machine",
+            name="ignore_local_nonexist",
+            datatype="GPBoolean", parameterType="Required", direction="Input")
+        ignore_local_nonexist.value = False
+
+        # 13: Skip a case if its case folder already exist on Azure
+        ignore_azure_exist = arcpy.Parameter(
+            displayName="Do not re-submit a case if it already " + \
+                        "exists on Azure",
+            name="ignore_azure_exist",
+            datatype="GPBoolean", parameterType="Required", direction="Input")
+        ignore_azure_exist.value = True
+
+        params += [ignore_local_nonexist, ignore_azure_exist]
+
+        return params
+
+    def isLicensed(self):
+        """Set whether tool is licensed to execute."""
+        return True
+
+    def updateParameters(self, parameters):
+        """Modify the values and properties of parameters before internal
+        validation is performed.  This method is called whenever a parameter
+        has been changed."""
+
+        parameters[5].enabled = (parameters[4].value == "Encrypted file")
+        parameters[6].enabled = (parameters[4].value == "Encrypted file")
+        for i in range(7, 12):
+            parameters[i].enabled = (not parameters[5].enabled)
+
+        return
+
+    def updateMessages(self, parameters):
+        """Modify the messages created by internal validation for each tool
+        parameter.  This method is called after internal validation."""
+
+        if parameters[4].value == "Encrypted file":
+            if parameters[5].value is None:
+                parameters[5].setErrorMessage("Require a credential file.")
+
+            if parameters[6].value is None:
+                parameters[6].setErrorMessage("Require passcode.")
+        else:
+            for i in range(7, 12):
+                if parameters[i].value is None:
+                    parameters[i].setErrorMessage("Cannot be empty.")
+        return
+
+    def execute(self, parameters, messages):
+        """The source code of the tool."""
+
+        # path of the working directory
+        working_dir = parameters[0].valueAsText.replace("\\", "\\\\")
+
+        # xy coordinates of rupture locations (Npoints x 2)
+        points = arcpy.da.FeatureClassToNumPyArray(
+            parameters[1].valueAsText, ["SHAPE@X", "SHAPE@Y"],
+            spatial_reference=arcpy.SpatialReference(3857))
+
+        # azure credential
+        max_nodes = parameters[2].value
+        vm_type = parameters[3].value
+
+        # skip a case if its case folder doesn't exist locally
+        ignore_local_nonexist = parameters[12].value
+
+        # skip a case if its case folder already exist on Azure
+        ignore_azure_exist = parameters[13].value
+
+        # Azure credential
+        if parameters[4].value == "Encrypted file":
+            credential = helpers.azuretools.UserCredential()
+            credential.read_encrypted(
+                parameters[6].valueAsText, parameters[5].valueAsText)
+        else:
+            credential = helpers.azuretools.UserCredential(
+                parameters[7].value, parameters[8].value, parameters[9].value,
+                parameters[10].value, parameters[11].value)
+
+        # initialize an Azure mission
+        mission = helpers.azuretools.Mission(
+            credential, "landspill-azure", max_nodes, [],
+            output=os.devnull, vm_type=vm_type)
+
+        # start mission (creating pool, storage, scheduler)
+        mission.start(ignore_local_nonexist, ignore_azure_exist)
+
+        # loop through each point to add case to Azure task scheduler
+        for i, point in enumerate(points):
+
+            x = "{}{}".format(numpy.abs(point[0]), "E" if point[0]>=0 else "W")
+            y = "{}{}".format(numpy.abs(point[1]), "N" if point[1]>=0 else "S")
+            x = x.replace(".", "_")
+            y = y.replace(".", "_")
+            case = os.path.join(working_dir, "{}{}".format(x, y))
+
+            arcpy.AddMessage("Adding case {}".format(case))
+            result = mission.add_task(case, ignore_local_nonexist, ignore_azure_exist)
+            arcpy.AddMessage(result)
+
+            if i == (max_nodes - 1):
+                mission.force_resize(max_nodes)
+
+        if points.shape[0] < max_nodes:
+            mission.force_resize(points.shape[0])
 
         return

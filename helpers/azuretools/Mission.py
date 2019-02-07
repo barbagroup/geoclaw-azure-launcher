@@ -82,6 +82,13 @@ class Mission:
         if self.close_output:
             self.output.close()
 
+        try:
+            logger = logging.getLogger()
+            logger.handlers[0].close()
+            logger.removeHandler(logger.handlers[0])
+        except:
+            pass
+
     def __str__(self):
         """__str__"""
         pass
@@ -112,6 +119,12 @@ class Mission:
             self.add_task(task, ignore_local_nonexist, ignore_azure_exist)
 
         self._log_info("Mission %s started.", self.info.name)
+
+    def force_resize(self, n_nodes):
+        """Force resizing the pool."""
+
+        self.info.n_nodes = n_nodes
+        self.controller.create_pool()
 
     def monitor_wait_download(self, cycle_time=10, resizing=True, download=True):
         """Monitor progress and wait until all tasks done."""
