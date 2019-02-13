@@ -384,7 +384,7 @@ def setgeo(rundata):
     topo_data = rundata.topo_data
     # for topography, append lines of the form
     #    [topotype, minlevel, maxlevel, t1, t2, fname]
-    topo_data.topofiles.append([3, 1, 5, 0., 1.e10, 'utah_dem_topo_3.txt'])
+    topo_data.topofiles.append([3, 1, 5, 0., 1.e10, 'topo.asc'])
 
     # == setdtopo.data values ==
     dtopo_data = rundata.dtopo_data
@@ -428,9 +428,7 @@ def setgeo(rundata):
 
     # hydrological features
     hydro_feature_data = landspill.hydro_features
-    hydro_feature_data.files.append("hydro_feature1.asc")
-    hydro_feature_data.files.append("hydro_feature2.asc")
-    hydro_feature_data.files.append("hydro_feature3.asc")
+    hydro_feature_data.files.append("hydro1.asc")
 
     # Evaporation
     evaporation_data = landspill.evaporation

@@ -6,6 +6,7 @@ credential.txt
 **/__pycache__
 **/*.nc
 **/*.asc
+**/*.prj
 **/utah_dem_topo_3.txt
 **/*.xml
 **/stdout.txt

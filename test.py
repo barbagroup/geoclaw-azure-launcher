@@ -21,10 +21,6 @@ if __name__ == "__main__":
     script_dir_path = os.path.dirname(os.path.abspath(__file__))
     sys.path.insert(0, os.path.join(script_dir_path, "test_cases"))
 
-    from download_data import download_all
-
-    download_all()
-
     # start the mission
     user_data = UserCredential(
         credential_file=os.path.join(script_dir_path, "credential.txt"))
