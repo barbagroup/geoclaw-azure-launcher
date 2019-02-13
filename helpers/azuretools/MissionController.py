@@ -368,7 +368,9 @@ class MissionController():
 
         return "Done"
 
-    def download_dir(self, dir_path, ignore_downloaded=True, ignore_not_exist=True):
+    def download_dir(self, dir_path, download_raw_output=False,
+                     download_asc=False,
+                     ignore_downloaded=True, ignore_not_exist=True):
         """Download a directory from the mission blob container."""
 
         # get the full and absolute path
@@ -404,6 +406,25 @@ class MissionController():
         for blob in blob_list:
             file_abs_path = os.path.join(
                 self.uploaded_dirs[dir_base_name], blob.name)
+
+            f_dir, f = os.path.split(file_abs_path)
+            base, ext = os.path.splitext(f)
+
+            # check whether to skip raw results
+            if not download_raw_output:
+                if ext == ".data":
+                    continue
+
+                if base in ["fort", "claw_git_diffs", "claw_git_status"]:
+                    continue
+
+            # check whether to skip raster files (topo & hydro)
+            if not download_asc and ext in [".asc", ".prj"]:
+                continue
+
+            # never download __pycache__
+            if os.path.split(f_dir)[1] == "__pycache__":
+                continue
 
             if not os.path.isdir(os.path.dirname(file_abs_path)):
                 os.makedirs(os.path.dirname(file_abs_path))
