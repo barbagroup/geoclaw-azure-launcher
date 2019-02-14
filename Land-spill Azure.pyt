@@ -73,27 +73,61 @@ class PrepareGeoClawCases(object):
             ["GPDouble", "End time (sec)"], ["GPDouble", "Rate (m^3/sec)"]]
         leak_profile.value = [[1800.0, 0.5], [12600.0, 0.1]]
 
-        # 3, basic: base topography
+        # 3, how will the topo file be provided
+        topo_type = arcpy.Parameter(
+            category="Basic",
+            displayName="Topography file type", name="topo_type",
+            datatype="GPString", parameterType="Required", direction="Input")
+        topo_type.filter.type = "ValueList"
+        topo_type.filter.list = ["Get from 3DEP map server", "Local raster layer"]
+        topo_type.value = "Get from 3DEP map server"
+
+        # 4, basic: base topography
         topo_layer = arcpy.Parameter(
             category="Basic", displayName="Base topography", name="topo_layer",
-            datatype="GPRasterLayer", parameterType="Required", direction="Input")
+            datatype="GPRasterLayer", parameterType="Optional",
+            direction="Input", enabled=False)
 
-        # 4, basic: hydrological features
+        # 5, how will the hydro files be provided
+        hydro_type = arcpy.Parameter(
+            category="Basic",
+            displayName="Hydrological file type", name="hydro_type",
+            datatype="GPString", parameterType="Required", direction="Input")
+        hydro_type.filter.type = "ValueList"
+        hydro_type.filter.list = ["Get from NHD feature server", "Local feature layers"]
+        hydro_type.value = "Get from NHD feature server"
+
+        # 6, basic: hydrological features
         hydro_layers = arcpy.Parameter(
             category="Basic", displayName="Hydrological features",
             name="hydro_layers", datatype="GPFeatureLayer",
-            parameterType="Optional", direction="Input", multiValue=True)
+            parameterType="Optional", direction="Input", multiValue=True,
+            enabled=False)
 
-        # 5, 6, basic: finest resolution
+        # 7, auto-adjust resolution based on input topo raster
+        auto_res = arcpy.Parameter(
+            category="Basic",
+            displayName="Use the cell size in the topography raster file as " +
+                        "the finest computational grid resolution",
+            name="auto_res",
+            datatype="GPBoolean", parameterType="Required", direction="Input",
+            enabled=False)
+        auto_res.value = False
+
+        # 8, 9, basic: finest resolution
         x_res = arcpy.Parameter(
             category="Basic", displayName="X resolution (m)", name="x_res",
-            datatype="GPDouble", parameterType="Required", direction="Input")
+            datatype="GPDouble", parameterType="Required", direction="Input",
+            enabled=True)
 
         y_res = arcpy.Parameter(
             category="Basic", displayName="Y resolution (m)", name="y_res",
-            datatype="GPDouble", parameterType="Required", direction="Input")
+            datatype="GPDouble", parameterType="Required", direction="Input",
+            enabled=True)
 
-        # 7, 8, 9, 10, basic: computational extent relative to point source
+        x_res.value = y_res.value = 1.0
+
+        # 10, 11, 12, 13, basic: computational extent relative to point source
         dist_top = arcpy.Parameter(
             category="Basic",
             displayName="Relative computational doamin: top (m)",
@@ -120,42 +154,44 @@ class PrepareGeoClawCases(object):
 
         dist_top.value = dist_bottom.value = dist_left.value = dist_right.value = 1000
 
-        params += [working_dir, rupture_point, leak_profile, topo_layer, hydro_layers,
-                   x_res, y_res, dist_top, dist_bottom, dist_left, dist_right]
+        params += [working_dir, rupture_point, leak_profile,
+                   topo_type, topo_layer, hydro_type, hydro_layers,
+                   auto_res, x_res, y_res,
+                   dist_top, dist_bottom, dist_left, dist_right]
 
         # =====================================================================
         # Fluid settings section
         # =====================================================================
 
-        # 11
+        # 14
         ref_viscosity = arcpy.Parameter(
             category="Fluid settings",
             displayName="Reference dynamic viscosity (cP)", name="ref_viscosity",
             datatype="GPDouble", parameterType="Required", direction="Input")
         ref_viscosity.value = 332.0
 
-        # 12
+        # 15
         ref_temp = arcpy.Parameter(
             category="Fluid settings",
             displayName="Reference temperature (Celsius)", name="ref_temp",
             datatype="GPDouble", parameterType="Required", direction="Input")
         ref_temp.value = 15.0
 
-        # 13
+        # 16
         temp = arcpy.Parameter(
             category="Fluid settings",
             displayName="Ambient temperature (Celsius)", name="temp",
             datatype="GPDouble", parameterType="Required", direction="Input")
         temp.value= 25.0
 
-        # 14
+        # 17
         density = arcpy.Parameter(
             category="Fluid settings",
             displayName="Density (kg/m^3)", name="density",
             datatype="GPDouble", parameterType="Required", direction="Input")
         density.value= 9.266e2
 
-        # 15
+        # 18
         evap_type = arcpy.Parameter(
             category="Fluid settings",
             displayName="Evaporation model", name="evap_type",
@@ -164,14 +200,14 @@ class PrepareGeoClawCases(object):
         evap_type.filter.list = ["None", "Fingas1996 Log Law", "Fingas1996 SQRT Law"]
         evap_type.value = "Fingas1996 Log Law"
 
-        # 16
+        # 19
         evap_c1 = arcpy.Parameter(
             category="Fluid settings",
             displayName="Evaporation coefficients 1", name="evap_c1",
             datatype="GPDouble", parameterType="Optional", direction="Input")
         evap_c1.value = 1.38
 
-        # 17
+        # 20
         evap_c2 = arcpy.Parameter(
             category="Fluid settings",
             displayName="Evaporation coefficients 2", name="evap_c2",
@@ -185,7 +221,7 @@ class PrepareGeoClawCases(object):
         # Darcy-Weisbach section
         # =====================================================================
 
-        # 18
+        # 21
         friction_type = arcpy.Parameter(
             category="Darcy-Weisbach friction settings",
             displayName="Darcy-Weisbach model", name="friction_type",
@@ -194,7 +230,7 @@ class PrepareGeoClawCases(object):
         friction_type.filter.list = ["None", "Three-regime model"]
         friction_type.value = "Three-regime model"
 
-        # 19
+        # 22
         roughness =  arcpy.Parameter(
             category="Darcy-Weisbach friction settings",
             displayName="Surface roughness", name="roughness",
@@ -207,6 +243,7 @@ class PrepareGeoClawCases(object):
         # Misc
         # =====================================================================
 
+        # 23
         ignore = arcpy.Parameter(
             category="Misc",
             displayName="Skip setup if a case folder already exists",
@@ -227,24 +264,36 @@ class PrepareGeoClawCases(object):
         validation is performed.  This method is called whenever a parameter
         has been changed."""
 
-        # update the default cell x size based on provided base topo
-        if parameters[3].altered and not parameters[5].altered:
-            parameters[5].value = arcpy.Describe(
-                parameters[3].valueAsText).meanCellWidth
+        # if using local raster layer
+        parameters[4].enabled = (parameters[3].value == "Local raster layer")
 
-        # update the default cell y size based on x size
-        if parameters[5].altered and not parameters[6].altered:
-            parameters[6].value = parameters[5].value
+        # if using local feature layers
+        parameters[6].enabled = (parameters[5].value == "Local feature layers")
 
-        if parameters[15].value == "None":
-            parameters[16].enabled = False
-            parameters[17].enabled = False
+        # option for auto setting of resolution
+        if parameters[4].enabled:
+            parameters[7].enabled = True
+        else:
+            parameters[7].enabled = False
+            parameters[7].value = False
+
+        # x and 7 resolution
+        parameters[8].enabled = not parameters[7].value
+        parameters[9].enabled = not parameters[7].value
+
+        # Evaporation Fingas coefficient
+        parameters[19].enabled = not parameters[18].value == "None"
+        parameters[20].enabled = not parameters[18].value == "None"
 
         return
 
     def updateMessages(self, parameters):
         """Modify the messages created by internal validation for each tool
         parameter.  This method is called after internal validation."""
+
+        if parameters[4].enabled and parameters[4].value is None:
+            parameters[4].setErrorMessage("Require a topography raster layer")
+
         return
 
     def execute(self, parameters, messages):
@@ -253,55 +302,59 @@ class PrepareGeoClawCases(object):
         importlib.reload(helpers.arcgistools)
         arcpy.env.parallelProcessingFactor="75%"
 
-        # path of the working directory
+        # 0:, path of the working directory
         working_dir = parameters[0].valueAsText.replace("\\", "\\\\")
 
-        # xy coordinates of rupture locations (Npoints x 2)
+        # 1: xy coordinates of rupture locations (Npoints x 2)
         points = arcpy.da.FeatureClassToNumPyArray(
             parameters[1].valueAsText, ["SHAPE@X", "SHAPE@Y"],
             spatial_reference=arcpy.SpatialReference(3857))
 
-        # profile of leak rate (Nstages x 2)
+        # 2: profile of leak rate (Nstages x 2)
         leak_profile = numpy.array(parameters[2].value, dtype=numpy.float64)
 
-        # base topography file
-        base_topo = parameters[3].valueAsText
-
-        # hydrological feature layers (1D array with size Nfeatures)
-        if parameters[4].value is None:
-            hydro_layers = []
+        # 3, 4: base topography file
+        if parameters[3].value == "Local raster layer":
+            base_topo = parameters[4].valueAsText
         else:
-            hydro_layers = [
-                parameters[4].value.getRow(i).strip("' ")
-                for i in range(parameters[4].value.rowCount)]
+            base_topo = None
 
-        # finest resolution in x & y direction
-        resolution = numpy.array(
-            [parameters[5].value, parameters[6].value], dtype=numpy.float64)
+        # 5, 6: hydrological feature layers (1D array with size Nfeatures)
+        if parameters[5].value == "Local feature layers":
+            if parameters[6].value is None:
+                hydro_layers = []
+            else:
+                hydro_layers = \
+                    [parameters[6].value.getRow(i).strip("' ")
+                     for i in range(parameters[4].value.rowCount)]
 
-        # computational domain extent (relative to rupture points)
+        # 7, 8, 9: finest resolution in x & y direction
+        if parameters[7].value: # auto-setting
+            resolution = numpy.ones(2, dtype=numpy.float64) * \
+                arcpy.Describe(base_topo).meanCellWidth
+        else:
+            resolution = numpy.array(
+                [parameters[8].value, parameters[9].value], dtype=numpy.float64)
+
+        # 10-13: computational domain extent (relative to rupture points)
         domain = numpy.array(
-            [parameters[7].value, parameters[8].value,
-             parameters[9].value, parameters[10].value], dtype=numpy.float64)
+            [parameters[10].value, parameters[11].value,
+             parameters[12].value, parameters[13].value], dtype=numpy.float64)
 
-        # fluid properties
-        ref_mu=parameters[11].value
-        ref_temp=parameters[12].value
-        amb_temp=parameters[13].value
-        density=parameters[14].value
-        evap_type=parameters[15].value
-        evap_coeffs=numpy.array([parameters[16].value, parameters[17].value])
+        # 14-20: fluid properties
+        ref_mu=parameters[14].value
+        ref_temp=parameters[15].value
+        amb_temp=parameters[16].value
+        density=parameters[17].value
+        evap_type=parameters[18].value
+        evap_coeffs=numpy.array([parameters[19].value, parameters[20].value])
 
-        # friction
-        friction_type = parameters[18].value
-        roughness = parameters[19].value
+        # 21, 22: friction
+        friction_type = parameters[21].value
+        roughness = parameters[22].value
 
-        # misc
+        # 23: misc
         ignore = parameters[-1].value
-
-        # initialize an Azure mission
-        # mission = helpers.azuretools.Mission(
-        #     credential, "landspill-azure", max_nodes, [], vm_type)
 
         # loop through each point to create each case and submit to Azure
         for i, point in enumerate(points):
@@ -312,14 +365,18 @@ class PrepareGeoClawCases(object):
                 working_dir, point, ignore)
 
             # create topography ASCII file
-            arcpy.AddMessage("Creating topo input for point {}".format(point))
-            topo = helpers.arcgistools.prepare_single_topo(
-                base_topo, point, domain, case_path, ignore)
+            if base_topo is not None:
+                arcpy.AddMessage("Creating topo input for point {}".format(point))
+                topo = helpers.arcgistools.prepare_single_topo(
+                    base_topo, point, domain, case_path, ignore)
 
             # create ASCII rasters for hydorlogical files
-            arcpy.AddMessage("Creating hydro input for point {}".format(point))
-            hydros = helpers.arcgistools.prepare_single_point_hydros(
-                hydro_layers, point, domain, min(resolution), case_path, ignore)
+            if parameters[5].value == "Local feature layers":
+                arcpy.AddMessage("Creating hydro input for point {}".format(point))
+                hydros = helpers.arcgistools.prepare_single_point_hydros(
+                    hydro_layers, point, domain, min(resolution), case_path, ignore)
+            else:
+                hydros = ["hydro_0.asc"]
 
             # create setrun.py and roughness
             arcpy.AddMessage("Creating GeoClaw config for point {}".format(point))
