@@ -270,8 +270,14 @@ class MissionController():
         logging.info(
             "Issuing deletion to container %s.", self.info.container_name)
 
-        self.storage_client.delete_container(
-            container_name=self.info.container_name, fail_not_exist=True)
+        try:
+            self.storage_client.delete_container(
+                container_name=self.info.container_name, fail_not_exist=True)
+        except azure.common.AzureMissingResourceHttpError as err:
+            if err.error_code == "ContainerNotFound":
+                logging.info("Container does not exist. SKIP deletion.")
+            else:
+                raise
 
         logging.info("Deletion issued.")
 
@@ -305,7 +311,13 @@ class MissionController():
 
         logging.info("Issuing deletion to job %s", self.info.job_name)
 
-        self.batch_client.job.delete(self.info.job_name)
+        try:
+            self.batch_client.job.delete(self.info.job_name)
+        except azure.batch.models.BatchErrorException as err:
+            if err.message.value.startswith("The specified job does not exist."):
+                logging.info("Job does not exist. SKIP deletion.")
+            else:
+                raise
 
         logging.info("Deletion command issued.")
 

@@ -28,7 +28,8 @@ class Toolbox(object):
 
         # List of tool classes associated with this toolbox
         self.tools = [PrepareGeoClawCases, CreateAzureCredentialFile,
-                      RunCasesOnAzure, DownloadCasesFromAzure]
+                      RunCasesOnAzure, DownloadCasesFromAzure,
+                      DeleteAzureResources]
 
 class PrepareGeoClawCases(object):
     """Prepare case folders, configurations, and input files for GeoClaw."""
@@ -928,5 +929,170 @@ class DownloadCasesFromAzure(object):
                 case, download_raw, download_asc,
                 ignore_downloaded, ignore_nonexist)
             arcpy.AddMessage(result)
+
+        return
+
+class DeleteAzureResources(object):
+    """Delete resources on Azure."""
+
+    def __init__(self):
+        """Define the tool (tool name is the name of the class)."""
+        self.label = "DeleteAzureResources"
+        self.description =  "Delete resources on Azure."
+        self.canRunInBackground = False # no effect in ArcGIS Pro
+
+    def getParameterInfo(self):
+        """Define parameter definitions"""
+
+        params = []
+
+        # 0: Delete Batch pool, i.e., cluster
+        delete_pool = arcpy.Parameter(
+            displayName="Delete pool (cluster)",
+            name="delete_pool",
+            datatype="GPBoolean", parameterType="Required", direction="Input")
+        delete_pool.value = True
+
+        # 1: Delete Batch job, i.e., task scheduler
+        delete_job = arcpy.Parameter(
+            displayName="Delete job (task scheduler)",
+            name="delete_job",
+            datatype="GPBoolean", parameterType="Required", direction="Input")
+        delete_job.value = True
+
+        # 2: Delete Storage container
+        delete_container = arcpy.Parameter(
+            displayName="Delete storage container",
+            name="delete_container",
+            datatype="GPBoolean", parameterType="Required", direction="Input")
+        delete_container.value = False
+
+        params += [delete_pool, delete_job, delete_container]
+
+
+        # 3: credential type
+        cred_type = arcpy.Parameter(
+            displayName="Azure credential", name="cred_type",
+            datatype="GPString", parameterType="Required", direction="Input")
+
+        cred_type.filter.type = "ValueList"
+        cred_type.filter.list = ["Encrypted file", "Manual input"]
+        cred_type.value = "Encrypted file"
+
+        # 4: encrypted credential file
+        cred_file = arcpy.Parameter(
+            displayName="Encrypted credential file", name="cred_file",
+            datatype="DEFile", parameterType="Optional", direction="Input",
+            enabled=True)
+
+        cred_file.value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
+
+        # 5: passcode
+        passcode = arcpy.Parameter(
+            displayName="Passcode for the credential file", name="passcode",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=True)
+
+        # 6: Batch account name
+        azure_batch_name = arcpy.Parameter(
+            displayName="Azure Batch account name", name="azure_batch_name",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 7: Batch account key
+        azure_batch_key = arcpy.Parameter(
+            displayName="Azure Batch account key", name="azure_batch_key",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 8: Batch account URL
+        azure_batch_URL = arcpy.Parameter(
+            displayName="Azure Batch account URL", name="azure_batch_URL",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 9: Storage account name
+        azure_storage_name = arcpy.Parameter(
+            displayName="Azure Storage account name", name="azure_storage_name",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 10: Storage account key
+        azure_storage_key = arcpy.Parameter(
+            displayName="Azure Storage account key", name="azure_storage_key",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        params += [cred_type, cred_file, passcode,
+                   azure_batch_name, azure_batch_key, azure_batch_URL,
+                   azure_storage_name, azure_storage_key]
+
+        return params
+
+    def isLicensed(self):
+        """Set whether tool is licensed to execute."""
+        return True
+
+    def updateParameters(self, parameters):
+        """Modify the values and properties of parameters before internal
+        validation is performed.  This method is called whenever a parameter
+        has been changed."""
+
+        parameters[4].enabled = (parameters[3].value == "Encrypted file")
+        parameters[5].enabled = (parameters[3].value == "Encrypted file")
+        for i in range(6, 11):
+            parameters[i].enabled = (not parameters[4].enabled)
+
+        return
+
+    def updateMessages(self, parameters):
+        """Modify the messages created by internal validation for each tool
+        parameter.  This method is called after internal validation."""
+
+        if parameters[3].value == "Encrypted file":
+            if parameters[4].value is None:
+                parameters[4].setErrorMessage("Require a credential file.")
+
+            if parameters[5].value is None:
+                parameters[5].setErrorMessage("Require passcode.")
+        else:
+            for i in range(6, 11):
+                if parameters[i].value is None:
+                    parameters[i].setErrorMessage("Cannot be empty.")
+        return
+
+    def execute(self, parameters, messages):
+        """The source code of the tool."""
+        # skip if a case is not found on Azure
+        delete_pool = parameters[0].value
+
+        # skip if a case is already downloaded
+        delete_job = parameters[1].value
+
+        # also download raw data
+        delete_container = parameters[2].value
+
+        # Azure credential
+        if parameters[3].value == "Encrypted file":
+            credential = helpers.azuretools.UserCredential()
+            credential.read_encrypted(
+                parameters[5].valueAsText, parameters[4].valueAsText)
+        else:
+            credential = helpers.azuretools.UserCredential(
+                parameters[6].value, parameters[7].value, parameters[8].value,
+                parameters[9].value, parameters[10].value)
+
+        # initialize an Azure mission
+        mission = helpers.azuretools.Mission(
+            credential, "landspill-azure", 0, [], output=os.devnull)
+
+        if delete_pool:
+            mission.controller.delete_pool()
+
+        if delete_job:
+            mission.controller.delete_job()
+
+        if delete_container:
+            mission.controller.delete_storage_container()
 
         return
