@@ -29,7 +29,7 @@ class Toolbox(object):
         # List of tool classes associated with this toolbox
         self.tools = [PrepareGeoClawCases, CreateAzureCredentialFile,
                       RunCasesOnAzure, DownloadCasesFromAzure,
-                      DeleteAzureResources]
+                      DeleteAzureResources, MonitorAzureResources]
 
 class PrepareGeoClawCases(object):
     """Prepare case folders, configurations, and input files for GeoClaw."""
@@ -912,7 +912,7 @@ class DownloadCasesFromAzure(object):
         mission = helpers.azuretools.Mission(
             credential, "landspill-azure", 0, [], output=os.devnull)
 
-        # start mission (creating pool, storage, scheduler)
+        # get container information
         mission.controller.create_storage_container()
 
         # loop through each point to add case to Azure task scheduler
@@ -1096,3 +1096,144 @@ class DeleteAzureResources(object):
             mission.controller.delete_storage_container()
 
         return
+
+class MonitorAzureResources(object):
+    """Monitor resources on Azure."""
+
+    def __init__(self):
+        """Define the tool (tool name is the name of the class)."""
+        self.label = "MonitorAzureResources"
+        self.description =  "Monitor resources on Azure."
+        self.canRunInBackground = False # no effect in ArcGIS Pro
+
+    def getParameterInfo(self):
+        """Define parameter definitions"""
+
+        params = []
+
+        # 0: credential type
+        cred_type = arcpy.Parameter(
+            displayName="Azure credential", name="cred_type",
+            datatype="GPString", parameterType="Required", direction="Input")
+
+        cred_type.filter.type = "ValueList"
+        cred_type.filter.list = ["Encrypted file", "Manual input"]
+        cred_type.value = "Encrypted file"
+
+        # 1: encrypted credential file
+        cred_file = arcpy.Parameter(
+            displayName="Encrypted credential file", name="cred_file",
+            datatype="DEFile", parameterType="Optional", direction="Input",
+            enabled=True)
+
+        cred_file.value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
+
+        # 2: passcode
+        passcode = arcpy.Parameter(
+            displayName="Passcode for the credential file", name="passcode",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=True)
+
+        # 3: Batch account name
+        azure_batch_name = arcpy.Parameter(
+            displayName="Azure Batch account name", name="azure_batch_name",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 4: Batch account key
+        azure_batch_key = arcpy.Parameter(
+            displayName="Azure Batch account key", name="azure_batch_key",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 5: Batch account URL
+        azure_batch_URL = arcpy.Parameter(
+            displayName="Azure Batch account URL", name="azure_batch_URL",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 6: Storage account name
+        azure_storage_name = arcpy.Parameter(
+            displayName="Azure Storage account name", name="azure_storage_name",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        # 7: Storage account key
+        azure_storage_key = arcpy.Parameter(
+            displayName="Azure Storage account key", name="azure_storage_key",
+            datatype="GPStringHidden", parameterType="Optional",
+            direction="Input", enabled=False)
+
+        params += [cred_type, cred_file, passcode,
+                   azure_batch_name, azure_batch_key, azure_batch_URL,
+                   azure_storage_name, azure_storage_key]
+
+        return params
+
+    def isLicensed(self):
+        """Set whether tool is licensed to execute."""
+        return True
+
+    def updateParameters(self, parameters):
+        """Modify the values and properties of parameters before internal
+        validation is performed.  This method is called whenever a parameter
+        has been changed."""
+
+        parameters[1].enabled = (parameters[0].value == "Encrypted file")
+        parameters[2].enabled = (parameters[0].value == "Encrypted file")
+        for i in range(3, 8):
+            parameters[i].enabled = (not parameters[1].enabled)
+
+        return
+
+    def updateMessages(self, parameters):
+        """Modify the messages created by internal validation for each tool
+        parameter.  This method is called after internal validation."""
+
+        if parameters[0].value == "Encrypted file":
+            if parameters[1].value is None:
+                parameters[1].setErrorMessage("Require a credential file.")
+
+            if parameters[2].value is None:
+                parameters[2].setErrorMessage("Require passcode.")
+        else:
+            for i in range(3, 8):
+                if parameters[i].value is None:
+                    parameters[i].setErrorMessage("Cannot be empty.")
+        return
+
+    def execute(self, parameters, messages):
+        """The source code of the tool."""
+        import tkinter
+        import datetime
+        import time
+
+        # Azure credential
+        if parameters[0].value == "Encrypted file":
+            credential = helpers.azuretools.UserCredential()
+            credential.read_encrypted(
+                parameters[2].valueAsText, parameters[1].valueAsText)
+        else:
+            credential = helpers.azuretools.UserCredential(
+                parameters[3].value, parameters[4].value, parameters[5].value,
+                parameters[6].value, parameters[7].value)
+
+        # initialize an Azure mission
+        self.mission = helpers.azuretools.Mission(
+            credential, "landspill-azure", 0, [], output=os.devnull)
+
+        # initialize tkinter windows
+        self.root = tkinter.Tk()
+        self.window = helpers.arcgistools.AzureMonitorWindow(self.root)
+
+        # start monitor
+        self.window.after(0, self._recursive_callback)
+        self.window.mainloop()
+
+        return
+
+    def _recursive_callback(self):
+        """A private function used by GUI to update monitor."""
+        info = self.mission.get_monitor_string()
+        self.window.update_text(info)
+        self.window.after(10000, self._recursive_callback)

@@ -16,6 +16,7 @@ from helpers.arcgistools.prepare_topos import prepare_single_topo
 from helpers.arcgistools.prepare_hydros import prepare_hydros
 from helpers.arcgistools.prepare_hydros import prepare_single_point_hydros
 from helpers.arcgistools.write_geoclaw_params import write_setrun
+from helpers.arcgistools.monitor_gui import AzureMonitorWindow
 
 __version__ = "alpha"
 __author__ = "Pi-Yueh Chuang (pychuang@gwu.edu)"

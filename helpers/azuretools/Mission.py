@@ -69,7 +69,11 @@ class Mission:
         # logging
         if log:
             if os.path.isfile("{}.log".format(mission_name)):
-                os.remove("{}.log".format(mission_name))
+                try:
+                    os.remove("{}.log".format(mission_name))
+                except PermissionError:
+                    pass
+
             logging.basicConfig(
                 filename="{}.log".format(mission_name), level=logging.DEBUG,
                 format="[%(asctime)s][%(levelname)s][%(filename)s] %(message)s\n")
@@ -210,3 +214,50 @@ class Mission:
             self.info.add_task(task)
 
         return "Done"
+
+    def get_monitor_string(self):
+        """Get a string for outputing."""
+
+        import datetime
+        s = "\n{}\n".format(str(datetime.datetime.now().replace(microsecond=0)))
+
+        # pool status and node status
+        s += "\n\n"
+        s += "Pool (cluster) name: {}\n".format(self.info.pool_name)
+        s += "Pool status: {0[0]} and {0[1]}\n".format(self.monitor.report_pool_status())
+
+        node_list = self.monitor.report_all_node_status()
+
+        if len(node_list) > 0:
+            s += "Node status:\n"
+
+        for node, stat in node_list.items():
+            s += "\t{}: {}\n".format(node, stat)
+
+        # job & task status
+        s += "\n\n"
+        s += "Job (task scheduler) name: {}\n".format(self.info.job_name)
+        s += "Job status: {}\n".format(self.monitor.report_job_status())
+
+        task_list = self.monitor.report_all_task_status()
+
+        if len(task_list) > 0:
+            s += "Task status:\n"
+
+        for task, stat in task_list.items():
+            s += "\t{}: {}\n".format(task, stat)
+
+        # storage container status
+        s += "\n\n"
+        s += "Storage Blob container name: {}\n".format(self.info.container_name)
+        s += "Container status: {}\n".format(self.monitor.report_storage_container_status())
+
+        dir_list = self.monitor.report_storage_container_dirs()
+
+        if len(dir_list) > 0:
+            s += "Directories in the container:\n"
+
+        for d, info in dir_list.items():
+            s += "\t {}: {}, {}\n".format(d, info[0], info[1])
+
+        return s
