@@ -823,7 +823,22 @@ class DownloadCasesFromAzure(object):
             datatype="GPBoolean", parameterType="Required", direction="Input")
         ignore_downloaded.value = True
 
-        params += [ignore_nonexist, ignore_downloaded]
+        # 12: Also download raw GeoClaw result data
+        download_raw = arcpy.Parameter(
+            displayName="Also download GeoClaw raw data",
+            name="download_raw",
+            datatype="GPBoolean", parameterType="Required", direction="Input")
+        download_raw.value = False
+
+        # 13: Also download topography & hydro rasters
+        download_asc = arcpy.Parameter(
+            displayName=\
+                "Also download topography and hydrological rasters used by GeoClaw",
+            name="download_asc",
+            datatype="GPBoolean", parameterType="Required", direction="Input")
+        download_asc.value = False
+
+        params += [ignore_nonexist, ignore_downloaded, download_raw, download_asc]
 
         return params
 
@@ -876,6 +891,12 @@ class DownloadCasesFromAzure(object):
         # skip if a case is already downloaded
         ignore_downloaded = parameters[11].value
 
+        # also download raw data
+        download_raw = parameters[12].value
+
+        # also download topography & hydrologic rasters used by GeoClaw
+        download_asc = parameters[13].value
+
         # Azure credential
         if parameters[2].value == "Encrypted file":
             credential = helpers.azuretools.UserCredential()
@@ -904,7 +925,8 @@ class DownloadCasesFromAzure(object):
 
             arcpy.AddMessage("Downloading case {}".format(case))
             result = mission.controller.download_dir(
-                case, ignore_downloaded, ignore_nonexist)
+                case, download_raw, download_asc,
+                ignore_downloaded, ignore_nonexist)
             arcpy.AddMessage(result)
 
         return
