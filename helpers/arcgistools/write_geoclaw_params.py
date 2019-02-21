@@ -47,15 +47,10 @@ template = \
 "    clawdata.output_aux_onlyonce = True" + "\n" + \
 "    clawdata.verbosity = 3" + "\n" + \
 "    clawdata.dt_variable = 1" + "\n" + \
-"    dx = (clawdata.upper[0] - clawdata.lower[0]) / clawdata.num_cells[0]" + "\n" + \
-"    dy = (clawdata.upper[1] - clawdata.lower[1]) / clawdata.num_cells[1]" + "\n" + \
-"    dx /= numpy.prod(rundata.amrdata.refinement_ratios_x[:rundata.amrdata.amr_levels_max])" + "\n" + \
-"    dy /= numpy.prod(rundata.amrdata.refinement_ratios_y[:rundata.amrdata.amr_levels_max])" + "\n" + \
-"    vrate = rundata.landspill_data.point_sources.point_sources[0][-1][0]" + "\n" + \
-"    clawdata.dt_initial = 0.3 * dx * dy / vrate" + "\n" + \
-"    clawdata.dt_max = 4.0" + "\n" + \
-"    clawdata.cfl_desired = 0.9" + "\n" + \
-"    clawdata.cfl_max = 0.95" + "\n" + \
+"    clawdata.dt_max = {dt_max}" + "\n" + \
+"    clawdata.dt_initial = {dt_init}" + "\n" + \
+"    clawdata.cfl_desired = {cfl_desired}" + "\n" + \
+"    clawdata.cfl_max = {cfl_max}" + "\n" + \
 "    clawdata.steps_max = 100000" + "\n" + \
 "    clawdata.order = 2" + "\n" + \
 "    clawdata.dimensional_split = 'unsplit'" + "\n" + \
@@ -77,10 +72,10 @@ template = \
 "    except:" + "\n" + \
 "        print('*** Error, this rundata has no amrdata attribute')" + "\n" + \
 "        raise AttributeError('Missing amrdata attribute')" + "\n" + \
-"    amrdata.amr_levels_max = 2" + "\n" + \
-"    amrdata.refinement_ratios_x = [4]" + "\n" + \
-"    amrdata.refinement_ratios_y = [4]" + "\n" + \
-"    amrdata.refinement_ratios_t = [4]" + "\n" + \
+"    amrdata.amr_levels_max = {amr_max}" + "\n" + \
+"    amrdata.refinement_ratios_x = {refinement_ratio}" + "\n" + \
+"    amrdata.refinement_ratios_y = {refinement_ratio}" + "\n" + \
+"    amrdata.refinement_ratios_t = {refinement_ratio}" + "\n" + \
 "    amrdata.aux_type = ['center', 'center']" + "\n" + \
 "    amrdata.flag_richardson = False" + "\n" + \
 "    amrdata.flag2refine = True" + "\n" + \
@@ -158,7 +153,8 @@ template = \
 def write_setrun(
         out_dir, point, extent, res, ref_mu, ref_temp, amb_temp,
         density, leak_profile, evap_type, evap_coeffs, n_hydros,
-        friction_type, roughness):
+        friction_type, roughness, dt_init, dt_max, cfl_desired,
+        cfl_max, amr_max, refinement_ratio):
     """Write setrun.py"""
 
     if not os.path.isdir(out_dir):
@@ -185,6 +181,12 @@ def write_setrun(
 
     hydro_strings = ["hydro_{}.asc".format(i) for i in range(n_hydros)]
 
+    if dt_init == 0:
+        dt_init = dt_max / (refinement_ratio**(amr_max-1))
+
+    refinement_ratio_str = numpy.array2string(
+        numpy.ones(amr_max-1, dtype=int)*refinement_ratio, separator=", ")
+
     data = template.format(
         point=point, extent=extent, NCells=NCells,
         ref_mu=ref_mu, ref_temp=ref_temp, amb_temp=amb_temp, density=density,
@@ -195,7 +197,10 @@ def write_setrun(
         evap_coeffs=numpy.array2string(evap_coeffs, separator=", "),
         hydros=hydro_strings,
         friction_type=friction_type_num,
-        roughness=roughness)
+        roughness=roughness,
+        dt_init=dt_init, dt_max=dt_max,
+        cfl_desired=cfl_desired, cfl_max=cfl_max,
+        amr_max=amr_max, refinement_ratio=refinement_ratio_str)
 
     output = os.path.join(out_dir, "setrun.py")
     with open(output, "w") as f:

@@ -254,6 +254,62 @@ class PrepareGeoClawCases(object):
 
         params += [ignore]
 
+        # =====================================================================
+        # Advanced numerical parameters
+        # =====================================================================
+
+        # 24
+        dt_init = arcpy.Parameter(
+            category="Advanced numerical parameters",
+            displayName="Initial time-step size (second). Use 0 for auto-setting.",
+            name="dt_init",
+            datatype="GPDouble", parameterType="Required", direction="Input")
+        dt_init.value = 0
+
+        # 25
+        dt_max = arcpy.Parameter(
+            category="Advanced numerical parameters",
+            displayName="Maximum time-step size (second)",
+            name="dt_max",
+            datatype="GPDouble", parameterType="Required", direction="Input")
+        dt_max.value = 4.0
+
+        # 26
+        cfl_desired = arcpy.Parameter(
+            category="Advanced numerical parameters",
+            displayName="Desired CFL number",
+            name="cfl_desired",
+            datatype="GPDouble", parameterType="Required", direction="Input")
+        cfl_desired.value = 0.9
+
+        # 27
+        cfl_max = arcpy.Parameter(
+            category="Advanced numerical parameters",
+            displayName="Maximum allowed CFL number",
+            name="cfl_max",
+            datatype="GPDouble", parameterType="Required", direction="Input")
+        cfl_max.value = 0.95
+
+        # 28
+        amr_max = arcpy.Parameter(
+            category="Advanced numerical parameters",
+            displayName="Total AMR levels",
+            name="amr_max",
+            datatype="GPLong", parameterType="Required", direction="Input")
+        amr_max.filter.type = "ValueList"
+        amr_max.filter.list = list(range(1, 11))
+        amr_max.value = 2
+
+        # 29
+        refinement_ratio = arcpy.Parameter(
+            category="Advanced numerical parameters",
+            displayName="AMR refinement ratio",
+            name="refinement_ratio",
+            datatype="GPLong", parameterType="Required", direction="Input")
+        refinement_ratio.value = 4
+
+        params += [dt_init, dt_max, cfl_desired, cfl_max, amr_max, refinement_ratio]
+
         return params
 
     def isLicensed(self):
@@ -294,6 +350,27 @@ class PrepareGeoClawCases(object):
 
         if parameters[4].enabled and parameters[4].value is None:
             parameters[4].setErrorMessage("Require a topography raster layer")
+
+        if parameters[24].value < 0:
+            parameters[24].setErrorMessage("Time-step can not be negative")
+
+        if parameters[25].value <= 0:
+            parameters[25].setErrorMessage("Time-step can not be zero or negative")
+
+        if parameters[26].value <= 0:
+            parameters[26].setErrorMessage("CFL can not be zero or negative")
+
+        if parameters[27].value <= 0:
+            parameters[27].setErrorMessage("CFL can not be zero or negative")
+
+        if parameters[26].value > 1.0:
+            parameters[26].setErrorMessage("CFL can not exceed 1.0")
+
+        if parameters[27].value > 1.0:
+            parameters[27].setErrorMessage("CFL can not exceed 1.0")
+
+        if parameters[29].value < 2:
+            parameters[29].setErrorMessage("CFL can not be less than 2")
 
         return
 
@@ -355,7 +432,15 @@ class PrepareGeoClawCases(object):
         roughness = parameters[22].value
 
         # 23: misc
-        ignore = parameters[-1].value
+        ignore = parameters[23].value
+
+        # 24-29: advanced numerical parameters
+        dt_init = parameters[24].value
+        dt_max = parameters[25].value
+        cfl_desired = parameters[26].value
+        cfl_max = parameters[27].value
+        amr_max = parameters[28].value
+        refinement_ratio = parameters[29].value
 
         # loop through each point to create each case and submit to Azure
         for i, point in enumerate(points):
@@ -387,7 +472,10 @@ class PrepareGeoClawCases(object):
                 density=density, leak_profile=leak_profile,
                 evap_type=evap_type, evap_coeffs=evap_coeffs,
                 n_hydros = len(hydros),
-                friction_type=friction_type, roughness=roughness)
+                friction_type=friction_type, roughness=roughness,
+                dt_init=dt_init, dt_max=dt_max,
+                cfl_desired=cfl_desired, cfl_max=cfl_max,
+                amr_max=amr_max, refinement_ratio=refinement_ratio)
 
             arcpy.AddMessage("Done preparing point {}".format(point))
 
