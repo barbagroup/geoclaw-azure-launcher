@@ -727,6 +727,12 @@ class RunCasesOnAzure(object):
 
         parameters[5].enabled = (parameters[4].value == "Encrypted file")
         parameters[6].enabled = (parameters[4].value == "Encrypted file")
+
+        if parameters[5].enabled:
+            parameters[5].value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
+        else:
+            parameters[5].value = None
+
         for i in range(7, 12):
             parameters[i].enabled = (not parameters[5].enabled)
 
@@ -942,6 +948,12 @@ class DownloadCasesFromAzure(object):
 
         parameters[3].enabled = (parameters[2].value == "Encrypted file")
         parameters[4].enabled = (parameters[2].value == "Encrypted file")
+
+        if parameters[3].enabled:
+            parameters[3].value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
+        else:
+            parameters[3].value = None
+
         for i in range(5, 10):
             parameters[i].enabled = (not parameters[3].enabled)
 
@@ -1128,6 +1140,12 @@ class DeleteAzureResources(object):
 
         parameters[4].enabled = (parameters[3].value == "Encrypted file")
         parameters[5].enabled = (parameters[3].value == "Encrypted file")
+
+        if parameters[4].enabled:
+            parameters[4].value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
+        else:
+            parameters[4].value = None
+
         for i in range(6, 11):
             parameters[i].enabled = (not parameters[4].enabled)
 
@@ -1269,6 +1287,12 @@ class MonitorAzureResources(object):
 
         parameters[1].enabled = (parameters[0].value == "Encrypted file")
         parameters[2].enabled = (parameters[0].value == "Encrypted file")
+
+        if parameters[1].enabled:
+            parameters[1].value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
+        else:
+            parameters[1].value = None
+
         for i in range(3, 8):
             parameters[i].enabled = (not parameters[1].enabled)
 
