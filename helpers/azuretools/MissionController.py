@@ -24,7 +24,7 @@ from helpers.azuretools import MissionInfo
 class MissionController():
     """MissionController"""
 
-    def __init__(self, user_credential, mission_info):
+    def __init__(self, user_credential, mission_info, wd="."):
         """__init__
 
         Args:
@@ -40,6 +40,9 @@ class MissionController():
 
         # an alias/pointer to the MissionInfo object
         self.info = mission_info
+
+        # working directory
+        self.wd = os.path.normpath(os.path.abspath(wd))
 
         # Batch service client
         self.batch_client = self.credential.create_batch_client()
@@ -187,13 +190,14 @@ class MissionController():
                     logging.info("Downloading uploaded_dirs.dat to recover info.")
                     self.storage_client.get_blob_to_path(
                         container_name=self.info.container_name,
-                        blob_name="uploaded_dirs.dat", file_path="uploaded_dirs.dat")
+                        blob_name="uploaded_dirs.dat",
+                        file_path=os.path.join(self.wd, "uploaded_dirs.dat"))
                     logging.info("Done downloading uploaded_dirs.dat.")
 
-                    with open("uploaded_dirs.dat", "rb") as f:
+                    with open(os.path.join(self.wd, "uploaded_dirs.dat"), "rb") as f:
                         self.uploaded_dirs = pickle.loads(f.read())
                     logging.info("uploaded_dirs recovered.")
-                    os.remove("uploaded_dirs.dat")
+                    os.remove(os.path.join(self.wd, "uploaded_dirs.dat"))
 
                 if self.storage_client.exists(
                         container_name=self.info.container_name,
@@ -202,13 +206,14 @@ class MissionController():
                     logging.info("Downloading downloaded.dat to recover info.")
                     self.storage_client.get_blob_to_path(
                         container_name=self.info.container_name,
-                        blob_name="downloaded.dat", file_path="downloaded.dat")
+                        blob_name="downloaded.dat",
+                        file_path=os.path.join(self.wd, "downloaded.dat"))
                     logging.info("Done downloading downloaded.dat.")
 
-                    with open("downloaded.dat", "rb") as f:
+                    with open(os.path.join(self.wd, "downloaded.dat"), "rb") as f:
                         self.downloaded = pickle.loads(f.read())
                     logging.info("downloaded recovered.")
-                    os.remove("downloaded.dat")
+                    os.remove(os.path.join(self.wd, "downloaded.dat"))
 
             elif err.error_code == "ContainerBeingDeleted":
                 created = False
@@ -367,16 +372,16 @@ class MissionController():
         self.uploaded_dirs[dir_base_name] = os.path.dirname(dir_path)
 
         # write the uploaded info to a file and upload to the container as a log
-        with open("uploaded_dirs.dat", "wb") as f:
+        with open(os.path.join(self.wd, "uploaded_dirs.dat"), "wb") as f:
             f.write(pickle.dumps(self.uploaded_dirs))
 
         logging.info("Uploading uploaded_dirs.dat")
         self.storage_client.create_blob_from_path(
             container_name=self.info.container_name, blob_name="uploaded_dirs.dat",
-            file_path="uploaded_dirs.dat", max_connections=2)
+            file_path=os.path.join(self.wd, "uploaded_dirs.dat"), max_connections=2)
         logging.info("Done uploading uploaded_dirs.dat")
 
-        os.remove("uploaded_dirs.dat")
+        os.remove(os.path.join(self.wd, "uploaded_dirs.dat"))
 
         return "Done"
 
@@ -453,16 +458,16 @@ class MissionController():
         self.downloaded.append(dir_base_name)
 
         # write the downloaded info to a file and upload to the container as a log
-        with open("downloaded.dat", "wb") as f:
+        with open(os.path.join(self.wd, "downloaded.dat"), "wb") as f:
             f.write(pickle.dumps(self.downloaded))
 
         logging.info("Uploading downloaded.dat")
         self.storage_client.create_blob_from_path(
             container_name=self.info.container_name, blob_name="downloaded.dat",
-            file_path="downloaded.dat", max_connections=2)
+            file_path=os.path.join(self.wd, "downloaded.dat"), max_connections=2)
         logging.info("Done uploading downloaded.dat")
 
-        os.remove("downloaded.dat")
+        os.remove(os.path.join(self.wd, "downloaded.dat"))
 
         return "Done."
 
@@ -500,20 +505,20 @@ class MissionController():
                     blob_name=blob.name)
                 logging.info("Done deleting file %s.", blob.name)
 
-            logging.info("Done downloading directory %s.", dir_path)
+            logging.info("Done deleting directory %s.", dir_path)
 
             logging.info("Updating uploaded_dirs.dat")
             del self.uploaded_dirs[dir_base_name]
-            with open("uploaded_dirs.dat", "wb") as f:
+            with open(os.path.join(self.wd, "uploaded_dirs.dat"), "wb") as f:
                 f.write(pickle.dumps(self.uploaded_dirs))
 
             logging.info("Uploading uploaded_dirs.dat")
             self.storage_client.create_blob_from_path(
                 container_name=self.info.container_name, blob_name="uploaded_dirs.dat",
-                file_path="uploaded_dirs.dat", max_connections=2)
+                file_path=os.path.join(self.wd, "uploaded_dirs.dat"), max_connections=2)
             logging.info("Done uploading uploaded_dirs.dat")
 
-            os.remove("uploaded_dirs.dat")
+            os.remove(os.path.join(self.wd, "uploaded_dirs.dat"))
 
     def add_task(self, case, ignore_exist=False):
         """Add a task to the mission's job (i.e., task scheduler).

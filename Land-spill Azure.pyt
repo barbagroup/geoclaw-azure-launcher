@@ -788,7 +788,7 @@ class RunCasesOnAzure(object):
         # initialize an Azure mission
         mission = helpers.azuretools.Mission(
             credential, "landspill-azure", max_nodes, [],
-            output=os.devnull, vm_type=vm_type)
+            output=os.devnull, vm_type=vm_type, wd=arcpy.env.scratchFolder)
 
         # start mission (creating pool, storage, scheduler)
         mission.start(ignore_local_nonexist, ignore_azure_exist, False)
@@ -1010,7 +1010,8 @@ class DownloadCasesFromAzure(object):
 
         # initialize an Azure mission
         mission = helpers.azuretools.Mission(
-            credential, "landspill-azure", 0, [], output=os.devnull)
+            credential, "landspill-azure", 0, [], output=os.devnull,
+            wd=arcpy.env.scratchFolder)
 
         # get container information
         mission.controller.create_storage_container()
@@ -1190,7 +1191,8 @@ class DeleteAzureResources(object):
 
         # initialize an Azure mission
         mission = helpers.azuretools.Mission(
-            credential, "landspill-azure", 0, [], output=os.devnull)
+            credential, "landspill-azure", 0, [], output=os.devnull,
+            wd=arcpy.env.scratchFolder)
 
         if delete_pool:
             mission.controller.delete_pool()
@@ -1332,7 +1334,8 @@ class MonitorAzureResources(object):
 
         # initialize an Azure mission
         self.mission = helpers.azuretools.Mission(
-            credential, "landspill-azure", 0, [], output=os.devnull)
+            credential, "landspill-azure", 0, [], output=os.devnull,
+            wd=arcpy.env.scratchFolder)
 
         # initialize tkinter windows
         self.root = tkinter.Tk()

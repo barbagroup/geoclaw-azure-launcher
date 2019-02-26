@@ -24,7 +24,8 @@ class Mission:
     """ class represeting a batch of simulation tasks."""
 
     def __init__(self, user_credential, mission_name, n_nodes_max,
-                 tasks, output=sys.stdout, log=True, vm_type="STANDARD_H8"):
+                 tasks, output=sys.stdout, log=True, vm_type="STANDARD_H8",
+                 wd="."):
         """__init__
 
         Args:
@@ -52,8 +53,11 @@ class Mission:
         # backup the value of n_node_max
         self.max_nodes = n_nodes_max
 
+        # working directory
+        self.wd = os.path.normpath(os.path.abspath(wd))
+
         # mission controller
-        self.controller = MissionController(self.credential, self.info)
+        self.controller = MissionController(self.credential, self.info, self.wd)
 
         # mission monitor
         self.monitor = MissionMonitor(self.credential, self.info)
@@ -68,14 +72,15 @@ class Mission:
 
         # logging
         if log:
-            if os.path.isfile("{}.log".format(mission_name)):
+            logfile = os.path.join(self.wd, "{}.log".format(mission_name))
+            if os.path.isfile(logfile):
                 try:
-                    os.remove("{}.log".format(mission_name))
+                    os.remove(logfile)
                 except PermissionError:
                     pass
 
             logging.basicConfig(
-                filename="{}.log".format(mission_name), level=logging.DEBUG,
+                filename=logfile, level=logging.DEBUG,
                 format="[%(asctime)s][%(levelname)s][%(filename)s] %(message)s\n")
         else:
             logging.basicConfig(filename=os.devnull)
