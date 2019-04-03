@@ -84,7 +84,7 @@ class MissionController():
 
         # prefetched Docker image
         container_conf = azure.batch.models.ContainerConfiguration(
-            container_image_names=['barbagroup/landspill:applications'])
+            container_image_names=['barbagroup/landspill:bionic'])
 
         # vm setting
         vm_conf = azure.batch.models.VirtualMachineConfiguration(
