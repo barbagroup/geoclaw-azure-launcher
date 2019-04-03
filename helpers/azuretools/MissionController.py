@@ -535,9 +535,9 @@ class MissionController():
         case = os.path.basename(case_path)
 
         task_container_settings = azure.batch.models.TaskContainerSettings(
-            image_name="barbagroup/landspill:applications",
+            image_name="barbagroup/landspill:bionic",
             container_run_options="--rm " + \
-                "--workdir /home/landspill/geoclaw-landspill-cases")
+                "--workdir /home/landspill")
 
         input_data = [
             azure.batch.models.ResourceFile(
@@ -568,8 +568,8 @@ class MissionController():
 
         command = "/bin/bash -c \"" + \
             "cp -r $AZ_BATCH_TASK_WORKING_DIR/{} ./ && ".format(case) + \
-            "python run.py {} && ".format(case) + \
-            "python createnc.py {} && ".format(case) + \
+            "run.py {} && ".format(case) + \
+            "createnc.py {} && ".format(case) + \
             "cp -r ./{} $AZ_BATCH_TASK_WORKING_DIR".format(case) + \
             "\""
 
