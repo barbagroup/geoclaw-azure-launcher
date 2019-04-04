@@ -37,10 +37,8 @@ template = \
 "    clawdata.t0 = 0.0" + "\n" + \
 "    clawdata.restart = False" + "\n" + \
 "    clawdata.restart_file = 'fort.chk00006'" + "\n" + \
-"    clawdata.output_style = 1" + "\n" + \
-"    clawdata.num_output_times = 240" + "\n" + \
-"    clawdata.tfinal = 28800" + "\n" + \
-"    clawdata.output_t0 = True" + "\n" + \
+"    clawdata.output_style = 2" + "\n" + \
+"    clawdata.output_times = list(numpy.arange(0, {end_time}+1, {output_time}))" + "\n" + \
 "    clawdata.output_format = 'binary'" + "\n" + \
 "    clawdata.output_q_components = 'all'" + "\n" + \
 "    clawdata.output_aux_components = 'all'" + "\n" + \
@@ -153,7 +151,8 @@ template = \
 "    rundata.write()"
 
 def write_setrun(
-        out_dir, point, extent, res, ref_mu, ref_temp, amb_temp,
+        out_dir, point, extent, end_time, output_time,
+        res, ref_mu, ref_temp, amb_temp,
         density, leak_profile, evap_type, evap_coeffs, n_hydros,
         friction_type, roughness, dt_init, dt_max, cfl_desired,
         cfl_max, amr_max, refinement_ratio):
@@ -164,6 +163,10 @@ def write_setrun(
 
     NCells = [int((extent[3]+extent[2])/(4*res[0])+0.5),
               int((extent[1]+extent[0])/(4*res[1])+0.5)]
+
+    # convert minutes to seconds
+    end_time *= 60
+    output_time *= 60
 
     if evap_type == "None":
         evap_type_num = 0
@@ -191,6 +194,7 @@ def write_setrun(
 
     data = template.format(
         point=point, extent=extent, NCells=NCells,
+        end_time=end_time, output_time=output_time,
         ref_mu=ref_mu, ref_temp=ref_temp, amb_temp=amb_temp, density=density,
         NStages=leak_profile.shape[0],
         StageTimes=numpy.array2string(leak_profile[:, 0], separator=", "),
