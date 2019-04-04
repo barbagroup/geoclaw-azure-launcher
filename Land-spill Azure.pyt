@@ -74,7 +74,22 @@ class PrepareGeoClawCases(object):
             ["GPDouble", "End time (sec)"], ["GPDouble", "Rate (m^3/sec)"]]
         leak_profile.value = [[1800.0, 0.5], [12600.0, 0.1]]
 
-        # 3, how will the topo file be provided
+        # 3, simulation time
+        sim_time = arcpy.Parameter(
+            category="Basic", displayName="Simulation time (minutes)", name="sim_time",
+            datatype="GPLong", parameterType="Required", direction="Input")
+
+        sim_time.value = 480
+
+        # 4, output time
+        output_time = arcpy.Parameter(
+            category="Basic", displayName="Output result every how many minutes",
+            name="output_time", datatype="GPLong", parameterType="Required",
+            direction="Input")
+
+        output_time.value = 2
+
+        # 5, how will the topo file be provided
         topo_type = arcpy.Parameter(
             category="Basic",
             displayName="Topography file type", name="topo_type",
@@ -83,13 +98,13 @@ class PrepareGeoClawCases(object):
         topo_type.filter.list = ["Get from 3DEP map server", "Local raster layer"]
         topo_type.value = "Get from 3DEP map server"
 
-        # 4, basic: base topography
+        # 6, basic: base topography
         topo_layer = arcpy.Parameter(
             category="Basic", displayName="Base topography", name="topo_layer",
             datatype="GPRasterLayer", parameterType="Optional",
             direction="Input", enabled=False)
 
-        # 5, how will the hydro files be provided
+        # 7, how will the hydro files be provided
         hydro_type = arcpy.Parameter(
             category="Basic",
             displayName="Hydrological file type", name="hydro_type",
@@ -98,14 +113,14 @@ class PrepareGeoClawCases(object):
         hydro_type.filter.list = ["Get from NHD feature server", "Local feature layers"]
         hydro_type.value = "Get from NHD feature server"
 
-        # 6, basic: hydrological features
+        # 8, basic: hydrological features
         hydro_layers = arcpy.Parameter(
             category="Basic", displayName="Hydrological features",
             name="hydro_layers", datatype="GPFeatureLayer",
             parameterType="Optional", direction="Input", multiValue=True,
             enabled=False)
 
-        # 7, auto-adjust resolution based on input topo raster
+        # 9, auto-adjust resolution based on input topo raster
         auto_res = arcpy.Parameter(
             category="Basic",
             displayName="Use the cell size in the topography raster file as " +
@@ -115,7 +130,7 @@ class PrepareGeoClawCases(object):
             enabled=False)
         auto_res.value = False
 
-        # 8, 9, basic: finest resolution
+        # 10, 11, basic: finest resolution
         x_res = arcpy.Parameter(
             category="Basic", displayName="X resolution (m)", name="x_res",
             datatype="GPDouble", parameterType="Required", direction="Input",
@@ -128,7 +143,7 @@ class PrepareGeoClawCases(object):
 
         x_res.value = y_res.value = 1.0
 
-        # 10, 11, 12, 13, basic: computational extent relative to point source
+        # 12, 13, 14, 15, basic: computational extent relative to point source
         dist_top = arcpy.Parameter(
             category="Basic",
             displayName="Relative computational doamin: top (m)",
@@ -156,6 +171,7 @@ class PrepareGeoClawCases(object):
         dist_top.value = dist_bottom.value = dist_left.value = dist_right.value = 1000
 
         params += [working_dir, rupture_point, leak_profile,
+                   sim_time, output_time,
                    topo_type, topo_layer, hydro_type, hydro_layers,
                    auto_res, x_res, y_res,
                    dist_top, dist_bottom, dist_left, dist_right]
@@ -164,35 +180,35 @@ class PrepareGeoClawCases(object):
         # Fluid settings section
         # =====================================================================
 
-        # 14
+        # 16
         ref_viscosity = arcpy.Parameter(
             category="Fluid settings",
             displayName="Reference dynamic viscosity (cP)", name="ref_viscosity",
             datatype="GPDouble", parameterType="Required", direction="Input")
         ref_viscosity.value = 332.0
 
-        # 15
+        # 17
         ref_temp = arcpy.Parameter(
             category="Fluid settings",
             displayName="Reference temperature (Celsius)", name="ref_temp",
             datatype="GPDouble", parameterType="Required", direction="Input")
         ref_temp.value = 15.0
 
-        # 16
+        # 18
         temp = arcpy.Parameter(
             category="Fluid settings",
             displayName="Ambient temperature (Celsius)", name="temp",
             datatype="GPDouble", parameterType="Required", direction="Input")
         temp.value= 25.0
 
-        # 17
+        # 19
         density = arcpy.Parameter(
             category="Fluid settings",
             displayName="Density (kg/m^3)", name="density",
             datatype="GPDouble", parameterType="Required", direction="Input")
         density.value= 9.266e2
 
-        # 18
+        # 20
         evap_type = arcpy.Parameter(
             category="Fluid settings",
             displayName="Evaporation model", name="evap_type",
@@ -201,14 +217,14 @@ class PrepareGeoClawCases(object):
         evap_type.filter.list = ["None", "Fingas1996 Log Law", "Fingas1996 SQRT Law"]
         evap_type.value = "Fingas1996 Log Law"
 
-        # 19
+        # 21
         evap_c1 = arcpy.Parameter(
             category="Fluid settings",
             displayName="Evaporation coefficients 1", name="evap_c1",
             datatype="GPDouble", parameterType="Optional", direction="Input")
         evap_c1.value = 1.38
 
-        # 20
+        # 22
         evap_c2 = arcpy.Parameter(
             category="Fluid settings",
             displayName="Evaporation coefficients 2", name="evap_c2",
@@ -222,7 +238,7 @@ class PrepareGeoClawCases(object):
         # Darcy-Weisbach section
         # =====================================================================
 
-        # 21
+        # 23
         friction_type = arcpy.Parameter(
             category="Darcy-Weisbach friction settings",
             displayName="Darcy-Weisbach model", name="friction_type",
@@ -231,7 +247,7 @@ class PrepareGeoClawCases(object):
         friction_type.filter.list = ["None", "Three-regime model"]
         friction_type.value = "Three-regime model"
 
-        # 22
+        # 24
         roughness =  arcpy.Parameter(
             category="Darcy-Weisbach friction settings",
             displayName="Surface roughness", name="roughness",
@@ -244,7 +260,7 @@ class PrepareGeoClawCases(object):
         # Misc
         # =====================================================================
 
-        # 23
+        # 25
         ignore = arcpy.Parameter(
             category="Misc",
             displayName="Skip setup if a case folder already exists",
@@ -258,7 +274,7 @@ class PrepareGeoClawCases(object):
         # Advanced numerical parameters
         # =====================================================================
 
-        # 24
+        # 26
         dt_init = arcpy.Parameter(
             category="Advanced numerical parameters",
             displayName="Initial time-step size (second). Use 0 for auto-setting.",
@@ -266,7 +282,7 @@ class PrepareGeoClawCases(object):
             datatype="GPDouble", parameterType="Required", direction="Input")
         dt_init.value = 0
 
-        # 25
+        # 27
         dt_max = arcpy.Parameter(
             category="Advanced numerical parameters",
             displayName="Maximum time-step size (second)",
@@ -274,7 +290,7 @@ class PrepareGeoClawCases(object):
             datatype="GPDouble", parameterType="Required", direction="Input")
         dt_max.value = 4.0
 
-        # 26
+        # 28
         cfl_desired = arcpy.Parameter(
             category="Advanced numerical parameters",
             displayName="Desired CFL number",
@@ -282,7 +298,7 @@ class PrepareGeoClawCases(object):
             datatype="GPDouble", parameterType="Required", direction="Input")
         cfl_desired.value = 0.9
 
-        # 27
+        # 29
         cfl_max = arcpy.Parameter(
             category="Advanced numerical parameters",
             displayName="Maximum allowed CFL number",
@@ -290,7 +306,7 @@ class PrepareGeoClawCases(object):
             datatype="GPDouble", parameterType="Required", direction="Input")
         cfl_max.value = 0.95
 
-        # 28
+        # 30
         amr_max = arcpy.Parameter(
             category="Advanced numerical parameters",
             displayName="Total AMR levels",
@@ -300,7 +316,7 @@ class PrepareGeoClawCases(object):
         amr_max.filter.list = list(range(1, 11))
         amr_max.value = 2
 
-        # 29
+        # 31
         refinement_ratio = arcpy.Parameter(
             category="Advanced numerical parameters",
             displayName="AMR refinement ratio",
