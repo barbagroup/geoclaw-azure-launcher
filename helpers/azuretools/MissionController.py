@@ -24,41 +24,115 @@ from helpers.azuretools import MissionInfo
 class MissionController():
     """MissionController"""
 
-    def __init__(self, user_credential, mission_info, wd="."):
+    def __init__(self, credential):
         """__init__
 
         Args:
-            user_credential [in]: An instance of UserCredential.
-            mission_info [in]: A MissionInfo object.
+            credential [in]: An instance of UserCredential.
         """
 
-        assert isinstance(user_credential, UserCredential), "Type error!"
-        assert isinstance(mission_info, MissionInfo), "Type error!"
+        # logger
+        self.logger = logging.getLogger("AzureMission")
+        self.logger.debug("Creating a MissionController instance.")
 
-        # Azure credential
-        self.credential = user_credential
+        assert isinstance(credential, UserCredential), "Type error!"
 
-        # an alias/pointer to the MissionInfo object
-        self.info = mission_info
+        # Batch and Storage service clients
+        self.batch_client = credential.create_batch_client()
+        self.storage_client = credential.create_blob_client()
 
-        # working directory
-        self.wd = os.path.normpath(os.path.abspath(wd))
+        self.logger.info("Done creating a MissionController instance.")
 
-        # Batch service client
-        self.batch_client = self.credential.create_batch_client()
+    def create_storage_container(self, mission):
+        """Create a blob container for a mission."""
 
-        # Storage service client
-        self.storage_client = self.credential.create_blob_client()
+        self.logger.debug("Creating container %s", mission.container_name)
 
-        # we use one container for one mission, and we initialize the info here
-        self.container_token = None
-        self.container_url = None
+        assert isinstance(mission, MissionInfo), "Type error!"
 
-        # variable to track what we uploaded
-        self.uploaded_dirs = {}
+        try:
+            # create a container
+            created = self.storage_client.create_container(
+                container_name=mission.container_name, fail_on_exist=True)
 
-        # variable to track what we have downloaded
-        self.downloaded = []
+        # if something wrong when creating the container
+        except azure.common.AzureConflictHttpError as err:
+
+            # if the container already exists on Azure Storage
+            if err.error_code == "ContainerAlreadyExists":
+                self.logger.debug("%s already exists. Skip.", mission.container_name)
+
+            # if the container exists but is being deleted
+            elif err.error_code == "ContainerBeingDeleted":
+                created = False
+                counter = 0
+                while not created:
+                    counter += 1
+                    if counter > 120:
+                        self.logger.error(
+                            "Creating container %s timeout.", mission.container_name)
+                        raise RuntimeError(
+                            "The container %s has been undergoing deletion for "
+                            "over 600 seconds. Please manually check the status.")
+
+                    self.logger.debug(
+                        "%s is being deleted. Retrying.", mission.container_name)
+
+                    time.sleep(5)
+                    created = self.storage_client.create_container(
+                        container_name=mission.container_name, fail_on_exist=False)
+            else:
+                raise
+
+        self.logger.info("Done creating container %s", mission.container_name)
+
+        # use current time as the sharing start time
+        current_utc_time = \
+            datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+
+        # get the SAS token
+        mission.container_token = \
+            self.storage_client.generate_container_shared_access_signature(
+                container_name=mission.container_name,
+                permission=azure.storage.blob.ContainerPermissions(
+                    True, True, True, True),
+                start=current_utc_time,
+                expiry=current_utc_time+datetime.timedelta(days=30))
+        self.logger.info("SAS token for %s obtained.", mission.container_name)
+
+        # get the SAS url
+        mission.container_url = \
+            self.storage_client.make_container_url(
+                container_name=mission.container_name,
+                sas_token=mission.container_token)
+
+        # not sure why there's an extra key in the url. Need to remove it.
+        mission.container_url = \
+            mission.container_url.replace("restype=container&", "")
+        self.logger.info("SAS URL for %s obtained.", mission.container_name)
+
+    def delete_storage_container(self, mission):
+        """Delete the storage container of a mission."""
+
+        self.logger.debug("Deleting container %s", mission.container_name)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
+
+        try:
+            self.storage_client.delete_container(
+                container_name=mission.container_name, fail_not_exist=True)
+        except azure.common.AzureMissingResourceHttpError as err:
+            if err.error_code == "ContainerNotFound":
+                self.logger.debug("Container does not exist. SKIP deletion.")
+            else:
+                raise
+
+        self.logger.info(
+            "Deletion command issued to container %s.", mission.container_name)
+
+    def sync_task_list(self, mission):
+        """Sync the task list between local copy and cloud copy."""
+        pass
 
     def create_pool(self):
         """Create a pool on Azure based on the mission info."""
@@ -69,11 +143,11 @@ class MissionController():
             pool_info = self.batch_client.pool.get(self.info.pool_name)
             self.info.n_nodes = pool_info.target_dedicated_nodes
 
-            logging.info("Pool %s already exists.", self.info.pool_name)
+            logger.info("Pool %s already exists.", self.info.pool_name)
             return "Already exist"
 
         # if the batch client is not aware of this pool
-        logging.info("Issuing creation to pool %s.", self.info.pool_name)
+        logger.info("Issuing creation to pool %s.", self.info.pool_name)
 
         # image
         image = azure.batch.models.ImageReference(
@@ -102,7 +176,7 @@ class MissionController():
         # create the pool
         self.batch_client.pool.add(pool_conf)
 
-        logging.info("Creation command issued.")
+        logger.info("Creation command issued.")
 
         return "Done"
 
@@ -111,7 +185,7 @@ class MissionController():
 
         # if the pool already exists (it does not mean it's ready)
         if not self.batch_client.pool.exists(pool_id=self.info.pool_name):
-            logging.error("Pool %s does not exist.", self.info.pool_name)
+            logger.error("Pool %s does not exist.", self.info.pool_name)
             raise RuntimeError(
                 "Pool {} does not exist.".format(self.info.pool_name))
 
@@ -120,12 +194,12 @@ class MissionController():
 
         # check if the size of the pool matches the self
         if pool_info.target_dedicated_nodes == n_nodes: # no change, skip
-            logging.info(
+            logger.info(
                 "Pool %s already has the specified number of nodes. Skip.",
                 self.info.pool_name)
             return "No change"
 
-        logging.info("Issuing a resizing command to pool %s.", self.info.pool_name)
+        logger.info("Issuing a resizing command to pool %s.", self.info.pool_name)
 
         # an alias for shorter code
         pool_resizing = azure.batch.models.AllocationState.resizing
@@ -149,144 +223,25 @@ class MissionController():
 
         self.info.n_nodes = n_nodes
 
-        logging.info("Resizing command issued to pool %s.", self.info.pool_name)
+        logger.info("Resizing command issued to pool %s.", self.info.pool_name)
 
         return "Done"
 
     def delete_pool(self):
         """Delete a pool on Azure based on the content set in self."""
 
-        logging.info("Issuing deletion to pool %s.", self.info.pool_name)
+        logger.info("Issuing deletion to pool %s.", self.info.pool_name)
 
         # if the pool exists, issue a delete command
         if self.batch_client.pool.exists(pool_id=self.info.pool_name):
             self.batch_client.pool.delete(self.info.pool_name)
-            logging.info("Deletion command issued to pool %s.", self.info.pool_name)
+            logger.info("Deletion command issued to pool %s.", self.info.pool_name)
 
             return "Done"
         else:
-            logging.info(
+            logger.info(
                 "Pool %s does not exist. Skip deletion.", self.info.pool_name)
             return "Not exist"
-
-    def create_storage_container(self):
-        """Create a blob container for this mission."""
-
-        # create a container
-        logging.info("Creating container %s", self.info.container_name)
-        try:
-            created = self.storage_client.create_container(
-                container_name=self.info.container_name, fail_on_exist=True)
-        except azure.common.AzureConflictHttpError as err:
-            if err.error_code == "ContainerAlreadyExists":
-                logging.info(
-                    "The container %s already exists. SKIP creation.",
-                    self.info.container_name)
-
-                if self.storage_client.exists(
-                        container_name=self.info.container_name,
-                        blob_name="uploaded_dirs.dat"):
-
-                    logging.info("Downloading uploaded_dirs.dat to recover info.")
-                    self.storage_client.get_blob_to_path(
-                        container_name=self.info.container_name,
-                        blob_name="uploaded_dirs.dat",
-                        file_path=os.path.join(self.wd, "uploaded_dirs.dat"))
-                    logging.info("Done downloading uploaded_dirs.dat.")
-
-                    with open(os.path.join(self.wd, "uploaded_dirs.dat"), "rb") as f:
-                        self.uploaded_dirs = pickle.loads(f.read())
-                    logging.info("uploaded_dirs recovered.")
-                    os.remove(os.path.join(self.wd, "uploaded_dirs.dat"))
-
-                if self.storage_client.exists(
-                        container_name=self.info.container_name,
-                        blob_name="downloaded.dat"):
-
-                    logging.info("Downloading downloaded.dat to recover info.")
-                    self.storage_client.get_blob_to_path(
-                        container_name=self.info.container_name,
-                        blob_name="downloaded.dat",
-                        file_path=os.path.join(self.wd, "downloaded.dat"))
-                    logging.info("Done downloading downloaded.dat.")
-
-                    with open(os.path.join(self.wd, "downloaded.dat"), "rb") as f:
-                        self.downloaded = pickle.loads(f.read())
-                    logging.info("downloaded recovered.")
-                    os.remove(os.path.join(self.wd, "downloaded.dat"))
-
-            elif err.error_code == "ContainerBeingDeleted":
-                created = False
-                counter = 0
-                while not created:
-                    logging.warning(
-                        "The container %s is undergoing deletion. \
-                         Retry in 5 secs.",
-                        self.info.container_name)
-
-                    time.sleep(5)
-
-                    created = self.storage_client.create_container(
-                        container_name=self.info.container_name,
-                        fail_on_exist=False)
-
-                    counter += 1
-                    if counter > 120:
-                        logging.error(
-                            "Retry timeout. Re-creating the container failed.")
-                        raise RuntimeError(
-                            "The container %s has been undergoing deletion for "
-                            "over 600 seconds. Please manually check the status.")
-            else:
-                raise
-
-        logging.info("Container %s created/exists.", self.info.container_name)
-
-        # use current time as the sharing start time
-        current_utc_time = \
-            datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
-
-        # get the SAS token
-        self.container_token = \
-            self.storage_client.generate_container_shared_access_signature(
-                container_name=self.info.container_name,
-                permission=azure.storage.blob.ContainerPermissions(
-                    True, True, True, True),
-                start=current_utc_time,
-                expiry=current_utc_time+datetime.timedelta(days=1))
-        logging.info("SAS token for %s obtained.", self.info.container_name)
-
-        # get the SAS url
-        self.container_url = \
-            self.storage_client.make_container_url(
-                container_name=self.info.container_name,
-                sas_token=self.container_token)
-
-        # not sure why there's an extra key in the url. Need to remove it.
-        self.container_url = \
-            self.container_url.replace("restype=container&", "")
-        logging.info("SAS URL for %s obtained.", self.info.container_name)
-
-        return "Done"
-
-    def delete_storage_container(self):
-        """delete_all_data"""
-
-        logging.info(
-            "Issuing deletion to container %s.", self.info.container_name)
-
-        try:
-            self.storage_client.delete_container(
-                container_name=self.info.container_name, fail_not_exist=True)
-        except azure.common.AzureMissingResourceHttpError as err:
-            if err.error_code == "ContainerNotFound":
-                logging.info("Container does not exist. SKIP deletion.")
-            else:
-                raise
-
-        logging.info("Deletion issued.")
-
-        return "Done"
 
     def create_job(self):
         """Create a job (i.e. task scheduler) for this mission."""
@@ -297,15 +252,15 @@ class MissionController():
             pool_info=azure.batch.models.PoolInformation(
                 pool_id=self.info.pool_name))
 
-        logging.info("Issuing creation to job %s", self.info.job_name)
+        logger.info("Issuing creation to job %s", self.info.job_name)
 
         # add job
         try:
             self.batch_client.job.add(job_params)
-            logging.info("Creation command issued.")
+            logger.info("Creation command issued.")
         except azure.batch.models.BatchErrorException as err:
             if err.message.value.startswith("The specified job already exists."):
-                logging.info("Job already exists. SKIP creation.")
+                logger.info("Job already exists. SKIP creation.")
             else:
                 raise
 
@@ -314,17 +269,17 @@ class MissionController():
     def delete_job(self):
         """Delete the mission job (i.e. task scheduler)."""
 
-        logging.info("Issuing deletion to job %s", self.info.job_name)
+        logger.info("Issuing deletion to job %s", self.info.job_name)
 
         try:
             self.batch_client.job.delete(self.info.job_name)
         except azure.batch.models.BatchErrorException as err:
             if err.message.value.startswith("The specified job does not exist."):
-                logging.info("Job does not exist. SKIP deletion.")
+                logger.info("Job does not exist. SKIP deletion.")
             else:
                 raise
 
-        logging.info("Deletion command issued.")
+        logger.info("Deletion command issued.")
 
         return "Done"
 
@@ -341,7 +296,7 @@ class MissionController():
 
         # check if the base name conflicts any uploaded cases
         if dir_base_name in self.uploaded_dirs.keys() and not ignore_exist:
-            logging.error(
+            logger.error(
                 "A case with the same base name %s already exists in the \
                  container. Can't upload it.", dir_base_name)
             raise RuntimeError(
@@ -352,7 +307,7 @@ class MissionController():
         assert self.container_url is not None
         assert self.container_token is not None
 
-        logging.info("Uploading directory %s.", dir_path)
+        logger.info("Uploading directory %s.", dir_path)
 
         # upload files
         for dirpath, dirs, files in os.walk(dir_path):
@@ -360,13 +315,13 @@ class MissionController():
                 file_path = os.path.join(os.path.abspath(dirpath), f)
                 blob_name = os.path.relpath(file_path, os.path.dirname(dir_path))
 
-                logging.info("Uploading file %s.", file_path)
+                logger.info("Uploading file %s.", file_path)
                 self.storage_client.create_blob_from_path(
                     container_name=self.info.container_name, blob_name=blob_name,
                     file_path=file_path, max_connections=4)
-                logging.info("Done uploading file %s.", file_path)
+                logger.info("Done uploading file %s.", file_path)
 
-        logging.info("Done uploading directory %s.", dir_path)
+        logger.info("Done uploading directory %s.", dir_path)
 
         # add the case name and the parent path to the tracking list
         self.uploaded_dirs[dir_base_name] = os.path.dirname(dir_path)
@@ -375,11 +330,11 @@ class MissionController():
         with open(os.path.join(self.wd, "uploaded_dirs.dat"), "wb") as f:
             f.write(pickle.dumps(self.uploaded_dirs))
 
-        logging.info("Uploading uploaded_dirs.dat")
+        logger.info("Uploading uploaded_dirs.dat")
         self.storage_client.create_blob_from_path(
             container_name=self.info.container_name, blob_name="uploaded_dirs.dat",
             file_path=os.path.join(self.wd, "uploaded_dirs.dat"), max_connections=2)
-        logging.info("Done uploading uploaded_dirs.dat")
+        logger.info("Done uploading uploaded_dirs.dat")
 
         os.remove(os.path.join(self.wd, "uploaded_dirs.dat"))
 
@@ -399,19 +354,19 @@ class MissionController():
         assert self.container_token is not None
 
         if ignore_downloaded and (dir_base_name in self.downloaded):
-            logging.info("Directory %s already downloaded. Skip.", dir_path)
+            logger.info("Directory %s already downloaded. Skip.", dir_path)
             return "Already downloaded. Skip."
 
-        logging.info("Downloading directory %s.", dir_path)
+        logger.info("Downloading directory %s.", dir_path)
 
         if dir_base_name not in self.uploaded_dirs.keys():
             if not ignore_not_exist:
-                logging.error(
+                logger.error(
                     "Directory %s is not in the container.", dir_path)
                 raise RuntimeError(
                     "Directory {} is not in the container.".format(dir_path))
             else:
-                logging.warning(
+                logger.warning(
                     "Directory %s is not in the container. SKIP.", dir_path)
 
                 return "Not found on Azure. Skip."
@@ -446,13 +401,13 @@ class MissionController():
             if not os.path.isdir(os.path.dirname(file_abs_path)):
                 os.makedirs(os.path.dirname(file_abs_path))
 
-            logging.info("Downloading file %s.", file_abs_path)
+            logger.info("Downloading file %s.", file_abs_path)
             self.storage_client.get_blob_to_path(
                 container_name=self.info.container_name,
                 blob_name=blob.name, file_path=file_abs_path)
-            logging.info("Done downloading file %s.", file_abs_path)
+            logger.info("Done downloading file %s.", file_abs_path)
 
-        logging.info("Done downloading directory %s.", dir_path)
+        logger.info("Done downloading directory %s.", dir_path)
 
         # add the case name to the tracking list
         self.downloaded.append(dir_base_name)
@@ -461,11 +416,11 @@ class MissionController():
         with open(os.path.join(self.wd, "downloaded.dat"), "wb") as f:
             f.write(pickle.dumps(self.downloaded))
 
-        logging.info("Uploading downloaded.dat")
+        logger.info("Uploading downloaded.dat")
         self.storage_client.create_blob_from_path(
             container_name=self.info.container_name, blob_name="downloaded.dat",
             file_path=os.path.join(self.wd, "downloaded.dat"), max_connections=2)
-        logging.info("Done uploading downloaded.dat")
+        logger.info("Done uploading downloaded.dat")
 
         os.remove(os.path.join(self.wd, "downloaded.dat"))
 
@@ -482,16 +437,16 @@ class MissionController():
         assert self.container_url is not None
         assert self.container_token is not None
 
-        logging.info("Deleting %s from container.", dir_base_name)
+        logger.info("Deleting %s from container.", dir_base_name)
 
         if dir_base_name not in self.uploaded_dirs.keys():
             if not ignore_not_exist:
-                logging.error(
+                logger.error(
                     "Directory %s is not in the container.", dir_path)
                 raise RuntimeError(
                     "Directory {} is not in the container.".format(dir_path))
             else:
-                logging.warning(
+                logger.warning(
                     "Directory %s is not in the container. SKIP.", dir_path)
         else:
             blob_list = self.storage_client.list_blobs(
@@ -499,24 +454,24 @@ class MissionController():
                 prefix="{}/".format(dir_base_name), num_results=50000)
 
             for blob in blob_list:
-                logging.info("Deleting file %s.", blob.name)
+                logger.info("Deleting file %s.", blob.name)
                 self.storage_client.delete_blob(
                     container_name=self.info.container_name,
                     blob_name=blob.name)
-                logging.info("Done deleting file %s.", blob.name)
+                logger.info("Done deleting file %s.", blob.name)
 
-            logging.info("Done deleting directory %s.", dir_path)
+            logger.info("Done deleting directory %s.", dir_path)
 
-            logging.info("Updating uploaded_dirs.dat")
+            logger.info("Updating uploaded_dirs.dat")
             del self.uploaded_dirs[dir_base_name]
             with open(os.path.join(self.wd, "uploaded_dirs.dat"), "wb") as f:
                 f.write(pickle.dumps(self.uploaded_dirs))
 
-            logging.info("Uploading uploaded_dirs.dat")
+            logger.info("Uploading uploaded_dirs.dat")
             self.storage_client.create_blob_from_path(
                 container_name=self.info.container_name, blob_name="uploaded_dirs.dat",
                 file_path=os.path.join(self.wd, "uploaded_dirs.dat"), max_connections=2)
-            logging.info("Done uploading uploaded_dirs.dat")
+            logger.info("Done uploading uploaded_dirs.dat")
 
             os.remove(os.path.join(self.wd, "uploaded_dirs.dat"))
 
@@ -580,7 +535,7 @@ class MissionController():
             resource_files=input_data,
             output_files=output_data)
 
-        logging.info("Add task %s.", case)
+        logger.info("Add task %s.", case)
         self.batch_client.task.add(self.info.job_name, task_params)
 
     def delete_task(self, case):
