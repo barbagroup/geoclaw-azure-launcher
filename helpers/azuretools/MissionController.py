@@ -50,41 +50,48 @@ class MissionController():
 
         assert isinstance(mission, MissionInfo), "Type error!"
 
+        # alias to mission.container_name
+        container_name = mission.container_name
+
+        # a sub-function that retries to create container
+        def retry_creation():
+            created = False
+            counter = 0
+            while not created:
+                counter += 1
+                if counter > 120:
+                    self.logger.error("Creating container %s timeout.", container_name)
+                    raise RuntimeError(
+                        "The container %s has been undergoing deletion for "
+                        "over 600 seconds. Please manually check the status.")
+
+                self.logger.debug("%s is being deleted. Retrying.", container_name)
+
+                time.sleep(5)
+                created = self.storage_client.create_container(
+                    container_name=container_name, fail_on_exist=False)
+
+
         try:
             # create a container
             created = self.storage_client.create_container(
-                container_name=mission.container_name, fail_on_exist=True)
+                container_name=container_name, fail_on_exist=True)
 
         # if something wrong when creating the container
         except azure.common.AzureConflictHttpError as err:
 
             # if the container already exists on Azure Storage
             if err.error_code == "ContainerAlreadyExists":
-                self.logger.debug("%s already exists. Skip.", mission.container_name)
+                self.logger.debug("%s already exists. Skip.", container_name)
 
             # if the container exists but is being deleted
             elif err.error_code == "ContainerBeingDeleted":
-                created = False
-                counter = 0
-                while not created:
-                    counter += 1
-                    if counter > 120:
-                        self.logger.error(
-                            "Creating container %s timeout.", mission.container_name)
-                        raise RuntimeError(
-                            "The container %s has been undergoing deletion for "
-                            "over 600 seconds. Please manually check the status.")
+                retry_creation()
 
-                    self.logger.debug(
-                        "%s is being deleted. Retrying.", mission.container_name)
-
-                    time.sleep(5)
-                    created = self.storage_client.create_container(
-                        container_name=mission.container_name, fail_on_exist=False)
             else:
                 raise
 
-        self.logger.info("Done creating container %s", mission.container_name)
+        self.logger.info("Done creating container %s", container_name)
 
         # use current time as the sharing start time
         current_utc_time = \
@@ -93,23 +100,21 @@ class MissionController():
         # get the SAS token
         mission.container_token = \
             self.storage_client.generate_container_shared_access_signature(
-                container_name=mission.container_name,
+                container_name=container_name,
                 permission=azure.storage.blob.ContainerPermissions(
                     True, True, True, True),
                 start=current_utc_time,
                 expiry=current_utc_time+datetime.timedelta(days=30))
-        self.logger.info("SAS token for %s obtained.", mission.container_name)
+        self.logger.info("SAS token for %s obtained.", container_name)
 
         # get the SAS url
-        mission.container_url = \
-            self.storage_client.make_container_url(
-                container_name=mission.container_name,
-                sas_token=mission.container_token)
+        mission.container_url = self.storage_client.make_container_url(
+            container_name=container_name, sas_token=mission.container_token)
 
         # not sure why there's an extra key in the url. Need to remove it.
         mission.container_url = \
             mission.container_url.replace("restype=container&", "")
-        self.logger.info("SAS URL for %s obtained.", mission.container_name)
+        self.logger.info("SAS URL for %s obtained.", container_name)
 
     def delete_storage_container(self, mission):
         """Delete the storage container of a mission."""
