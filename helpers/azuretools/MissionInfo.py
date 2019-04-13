@@ -4,7 +4,7 @@
 #
 # Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """
 Definition of MissionInfo.
@@ -18,25 +18,58 @@ import datetime
 class MissionInfo():
     """A class holding information of a mission."""
 
-    def __init__(self, mission_name, n_nodes_max, wd=".",
-                 vm_type="STANDARD_H8", read_task_list=True):
-        """__init__
+    def __init__(self, mission_name="", n_nodes_max=0, wd=".", tasks={},
+                 vm_type="STANDARD_H8"):
+        """Constructor.
 
         Args:
             mission_name [in]: A str for the name of this mission.
             n_nodes_max [in]: Total number of computing nodes requested.
             wd [in]: working directory. (default: current directory)
-            vm_type [optional]: The type of virtual machine. (default: STANDARD_H8)
-            read_task_list [optional]: Whether to read task list file or not.
+            tasks [in]: A pre-exist list of tasks.
+            vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
         """
 
         # logger
         self.logger = logging.getLogger("AzureMission")
         self.logger.debug("Creating a MissionInfo instance.")
 
+        self.setup(mission_name, n_nodes_max, wd, tasks, vm_type)
+
+        self.logger.info("Done creating a MissionInfo instance.")
+
+    def __str__(self):
+        """__str__"""
+
+        s = "Name: {}\n".format(self.name) + \
+            "Max. number of nodes: {}\n".format(self.n_max_nodes) + \
+            "VM type: {}\n".format(self.vm_type) + \
+            "Pool name: {}\n".format(self.pool_name) + \
+            "Job (task scheduler) name: {}\n".format(self.job_name) + \
+            "Storage container name: {}\n".format(self.container_name) + \
+            "Current number of tasks: {}\n".format(len(self.tasks)) + \
+            "Task tracker file name: {}\n".format(self.backup_file)
+
+        return s
+
+    def setup(self, mission_name="", n_nodes_max=0, wd=".", tasks={},
+              vm_type="STANDARD_H8"):
+        """Setup the information of a mission.
+
+        Args:
+            mission_name [in]: A str for the name of this mission.
+            n_nodes_max [in]: Total number of computing nodes requested.
+            wd [in]: working directory. (default: current directory)
+            tasks [in]: A pre-exist list of tasks.
+            vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
+        """
+
+        self.logger.debug("Setting up a MissionInfo instance.")
+
         assert isinstance(mission_name, str), "Type error!"
         assert isinstance(n_nodes_max, int), "Type error!"
         assert isinstance(wd, str), "Type error!"
+        assert isinstance(tasks, dict), "Type error!"
         assert isinstance(vm_type, str), "Type error!"
 
         # other properties
@@ -53,28 +86,10 @@ class MissionInfo():
         self.container_token = None
         self.container_url = None
 
-        self.tasks = {}
-        self.task_tracker_file = os.path.join(
-            self.wd, "{}_task_list.dat".format(self.name))
+        self.tasks = tasks.copy()
+        self.backup_file = os.path.join(self.wd, "{}_backup_file.dat".format(self.name))
 
-        if read_task_list:
-            self.read_task_list()
-
-        self.logger.info("Done creating a MissionInfo instance.")
-
-    def __str__(self):
-        """__str__"""
-
-        s = "Name: {}\n".format(self.name) + \
-            "Max. number of nodes: {}\n".format(self.n_max_nodes) + \
-            "VM type: {}\n".format(self.vm_type) + \
-            "Pool name: {}\n".format(self.pool_name) + \
-            "Job (task scheduler) name: {}\n".format(self.job_name) + \
-            "Storage container name: {}\n".format(self.container_name) + \
-            "Current number of tasks: {}\n".format(len(self.tasks)) + \
-            "Task tracker file name: {}\n".format(self.task_tracker_file)
-
-        return s
+        self.logger.info("Done setting up a MissionInfo instance.")
 
     def add_task(self, case_name, case_path, ignore=True):
         """Add a task to the mission's task list.
@@ -96,10 +111,10 @@ class MissionInfo():
 
         if case_name in self.tasks:
             if not ignore:
-                self.logger.error("%s already exists in MissionInfo. Error!", case_name)
-                raise RuntimeError("{} already exists in MissionInfo.".format(case_name))
+                self.logger.error("%s already exists. Error!", case_name)
+                raise RuntimeError("{} already exists.".format(case_name))
             else:
-                self.logger.debug("%s already exists in MissionInfo. Ignored.", case_name)
+                self.logger.debug("%s already exists. Ignored.", case_name)
         else:
             case_path = os.path.abspath(case_path)
             self.tasks[case_name] = {
@@ -126,39 +141,72 @@ class MissionInfo():
             ignore [optional]: whether to ignore if the task doesn't exist in the list
         """
 
-        self.logger.debug("Removing a task %s to MissionInfo.", case_name)
+        self.logger.debug("Removing a task %s from MissionInfo.", case_name)
 
         try:
             del self.tasks[case_name]
         except KeyError:
             if not ignore:
-                self.logger.error("%s doesn't exists in MissionInfo. Error!", case_name)
-                raise RuntimeError("{} doesn't exists in MissionInfo.".format(case_name))
+                self.logger.error("%s doesn't exists. Error!", case_name)
+                raise RuntimeError("{} doesn't exists.".format(case_name))
             else:
-                self.logger.debug("%s doesn't exists in MissionInfo. Ignored.", case_name)
+                self.logger.debug("%s doesn't exists. Ignored.", case_name)
 
-        self.logger.info("Done removing task %s to MissionInfo.", case)
+        self.logger.info("Done removing task %s from MissionInfo.", case_name)
 
-    def write_task_list(self):
-        """Backup task list to a file."""
+    def write_mission_info(self):
+        """Backup this MissionInfo instance to a file.
 
-        self.logger.debug("Writing task list to file %s.", self.task_tracker_file)
+        Return:
+            The UTC time stamp at when the backup is done.
+        """
 
-        current_utc = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+        self.logger.debug("Writing a MissionInfo to file %s.", self.backup_file)
 
-        with open(self.task_tracker_file, "wb") as f:
-            f.write(pickle.dumps([current_utc, self.tasks]))
+        current_utc = datetime.datetime.utcnow().replace(
+            tzinfo=datetime.timezone.utc)
 
-        self.logger.info("Done writing task list to file %s.", self.task_tracker_file)
+        with open(self.backup_file, "wb") as f:
+            f.write(pickle.dumps([
+                current_utc,
+                self.name,
+                self.n_max_nodes,
+                self.wd,
+                self.vm_type,
+                self.pool_name,
+                self.job_name,
+                self.container_name,
+                self.container_token,
+                self.container_url,
+                self.tasks,
+                self.backup_file
+            ]))
 
-    def read_task_list(self):
-        """Read task list from a file."""
+        self.logger.info("Done writing the MissionInfo to file %s.", self.backup_file)
 
-        self.logger.debug("Reading task list from file %s.", self.task_tracker_file)
+        return current_utc
 
-        current_utc = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+    def read_mission_info(self, filename):
+        """Read a MissionInfo instance from a file.
 
-        with open(self.task_tracker_file, "wb") as f:
-            _, self.tasks = pickle.loads(f.read())
+        Args:
+            filename [in]: the file where the backup file is located.
 
-        self.logger.info("Done reading task list from file %s.", self.task_tracker_file)
+        Return:
+            The UTC time stamp at when the backup is done.
+        """
+
+        self.logger.debug("Reading a MissionInfo from file %s.", self.backup_file)
+
+        with open(filename, "rb") as f:
+            data_list = pickle.loads(f.read())
+
+        # assign to each member from data_list
+        timestamp, self.name, self.n_max_nodes, self.wd, self.vm_type, \
+            self.pool_name, self.job_name, self.container_name, \
+            self.container_token, self.container_url, self.tasks, \
+            self.backup_file = data_list
+
+        self.logger.info("Done reading the MissionInfo from file %s.", self.backup_file)
+
+        return timestamp
