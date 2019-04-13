@@ -4,17 +4,17 @@
 #
 # Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """
 __init__.py
 """
 
-from helpers.azuretools.UserCredential import UserCredential
-from helpers.azuretools.MissionInfo import MissionInfo
-from helpers.azuretools.MissionController import MissionController
-from helpers.azuretools.MissionMonitor import MissionMonitor
-from helpers.azuretools.Mission import Mission
+from .UserCredential import UserCredential
+from .MissionInfo import MissionInfo
+from .MissionController import MissionController
+from .MissionMonitor import MissionMonitor
+from .Mission import Mission
 
-__version__ = "alpha"
+__version__ = "v1.0-alpha"
 __author__ = "Pi-Yueh Chuang (pychuang@gwu.edu)"

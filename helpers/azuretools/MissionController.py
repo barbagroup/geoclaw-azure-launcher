@@ -17,8 +17,8 @@ import pickle
 import azure.batch.models
 import azure.storage.blob
 import azure.common
-from helpers.azuretools import UserCredential
-from helpers.azuretools import MissionInfo
+from . import UserCredential
+from . import MissionInfo
 
 
 class MissionController():
