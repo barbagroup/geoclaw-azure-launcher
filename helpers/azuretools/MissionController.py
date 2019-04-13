@@ -4,10 +4,10 @@
 #
 # Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """
-A controller for the mission (i.e., object that can issue action on Azure).
+A controller for the mission (i.e., object that can issue commands to Azure).
 """
 import os
 import time
@@ -44,7 +44,11 @@ class MissionController():
         self.logger.info("Done creating a MissionController instance.")
 
     def create_storage_container(self, mission):
-        """Create a blob container for a mission."""
+        """Create a blob container for a mission.
+
+        Args:
+            mission [in]: an MissionInfo object.
+        """
 
         self.logger.debug("Creating container %s", mission.container_name)
 
@@ -71,7 +75,6 @@ class MissionController():
                 created = self.storage_client.create_container(
                     container_name=container_name, fail_on_exist=False)
 
-
         try:
             # create a container
             created = self.storage_client.create_container(
@@ -93,31 +96,12 @@ class MissionController():
 
         self.logger.info("Done creating container %s", container_name)
 
-        # use current time as the sharing start time
-        current_utc_time = \
-            datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
-
-        # get the SAS token
-        mission.container_token = \
-            self.storage_client.generate_container_shared_access_signature(
-                container_name=container_name,
-                permission=azure.storage.blob.ContainerPermissions(
-                    True, True, True, True),
-                start=current_utc_time,
-                expiry=current_utc_time+datetime.timedelta(days=30))
-        self.logger.info("SAS token for %s obtained.", container_name)
-
-        # get the SAS url
-        mission.container_url = self.storage_client.make_container_url(
-            container_name=container_name, sas_token=mission.container_token)
-
-        # not sure why there's an extra key in the url. Need to remove it.
-        mission.container_url = \
-            mission.container_url.replace("restype=container&", "")
-        self.logger.info("SAS URL for %s obtained.", container_name)
-
     def delete_storage_container(self, mission):
-        """Delete the storage container of a mission."""
+        """Delete the storage container of a mission.
+
+        Args:
+            mission [in]: an MissionInfo object.
+        """
 
         self.logger.debug("Deleting container %s", mission.container_name)
 
@@ -135,9 +119,76 @@ class MissionController():
         self.logger.info(
             "Deletion command issued to container %s.", mission.container_name)
 
-    def sync_task_list(self, mission):
-        """Sync the task list between local copy and cloud copy."""
-        pass
+    def get_storage_container_access_tokens(self, mission):
+        """Get container URL and SAS token.
+
+        Args:
+            mission [in]: an MissionInfo object.
+        """
+
+        self.logger.debug("Requesting container SAS tokens.")
+
+        assert isinstance(mission, MissionInfo), "Type error!"
+
+        # use current time as the sharing start time
+        current_utc_time = \
+            datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+
+        # get the SAS token
+        mission.container_token = \
+            self.storage_client.generate_container_shared_access_signature(
+                container_name=mission.container_name,
+                permission=azure.storage.blob.ContainerPermissions(
+                    True, True, True, True),
+                start=current_utc_time,
+                expiry=current_utc_time+datetime.timedelta(days=30))
+
+        # get the SAS url
+        mission.container_url = self.storage_client.make_container_url(
+            container_name=mission.container_name,
+            sas_token=mission.container_token)
+
+        # not sure why there's an extra key in the url. Need to remove it.
+        mission.container_url = \
+            mission.container_url.replace("restype=container&", "")
+
+        self.logger.info("Container SAS tokens obtained.")
+
+    def upload_single_file(self, mission, blobpath, filepath):
+        """Upload a file to a mission's sotrage container.
+
+        Args:
+            mission [in]: an MissionInfo object.
+            blobpath [in]: relative path to the Blob root on Azure.
+            filename [in]: path to the file on a local machine.
+        """
+
+        self.logger.debug("Uploading file %s to blob %s", filepath, blobpath)
+
+        # upload to Azure storage
+        self.storage_client.create_blob_from_path(
+            container_name=mission.container_name,
+            blob_name=blobpath, file_path=filepath, max_connections=4)
+
+        self.logger.info("Done uploading file %s to blob %s", filepath, blobpath)
+
+    def download_single_file(self, mission, blobpath, filepath):
+        """Download a file from a mission's sotrage container.
+
+        Args:
+            mission [in]: an MissionInfo object.
+            blobpath [in]: relative path to the Blob root on Azure.
+            filename [in]: path to the file on a local machine.
+        """
+
+        self.logger.debug("Download file %s from blob %s", filepath, blobpath)
+
+        # download from Azure storage
+        self.storage_client.get_blob_to_path(
+            container_name=mission.container_name,
+            blob_name=blobpath, file_path=filepath)
+
+        self.logger.info("Done uploading file %s from blob %s", filepath, blobpath)
 
     def create_pool(self):
         """Create a pool on Azure based on the mission info."""
