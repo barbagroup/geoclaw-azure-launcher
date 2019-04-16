@@ -40,6 +40,7 @@ class MissionController():
         # Batch and Storage service clients
         self.batch_client = credential.create_batch_client()
         self.storage_client = credential.create_blob_client()
+        self.table_client = credential.create_table_client()
 
         self.logger.info("Done creating a MissionController instance.")
 
@@ -96,6 +97,11 @@ class MissionController():
 
         self.logger.info("Done creating container %s", container_name)
 
+        # create an auxiliary storage table to store syncronization metadata
+        self.logger.debug("Creating aux table for %s", mission.container_name)
+        self.table_client.create_table(mission.table_name)
+        self.logger.info("Done creating aux table for %s", mission.container_name)
+
     def delete_storage_container(self, mission):
         """Delete the storage container of a mission.
 
@@ -118,6 +124,11 @@ class MissionController():
 
         self.logger.info(
             "Deletion command issued to container %s.", mission.container_name)
+
+        # delete the auxiliary storage table
+        self.logger.debug("Deleting aux table for %s", mission.container_name)
+        self.table_client.delete_table(mission.table_name)
+        self.logger.info("Done deleting aux table for %s", mission.container_name)
 
     def get_storage_container_access_tokens(self, mission):
         """Get container URL and SAS token.
@@ -153,42 +164,6 @@ class MissionController():
             mission.container_url.replace("restype=container&", "")
 
         self.logger.info("Container SAS tokens obtained.")
-
-    def upload_single_file(self, mission, blobpath, filepath):
-        """Upload a file to a mission's sotrage container.
-
-        Args:
-            mission [in]: an MissionInfo object.
-            blobpath [in]: relative path to the Blob root on Azure.
-            filename [in]: path to the file on a local machine.
-        """
-
-        self.logger.debug("Uploading file %s to blob %s", filepath, blobpath)
-
-        # upload to Azure storage
-        self.storage_client.create_blob_from_path(
-            container_name=mission.container_name,
-            blob_name=blobpath, file_path=filepath, max_connections=4)
-
-        self.logger.info("Done uploading file %s to blob %s", filepath, blobpath)
-
-    def download_single_file(self, mission, blobpath, filepath):
-        """Download a file from a mission's sotrage container.
-
-        Args:
-            mission [in]: an MissionInfo object.
-            blobpath [in]: relative path to the Blob root on Azure.
-            filename [in]: path to the file on a local machine.
-        """
-
-        self.logger.debug("Download file %s from blob %s", filepath, blobpath)
-
-        # download from Azure storage
-        self.storage_client.get_blob_to_path(
-            container_name=mission.container_name,
-            blob_name=blobpath, file_path=filepath)
-
-        self.logger.info("Done uploading file %s from blob %s", filepath, blobpath)
 
     def create_pool(self, mission):
         """Create a pool on Azure based on the mission info.
@@ -372,11 +347,217 @@ class MissionController():
             else:
                 raise
 
-    def upload_dir(self, dir_path, ignore_exist=False):
-        """Upload a directory to the mission container.
+    def compare_timestamp(self, mission, blobpath, filepath):
+        """Compare the timestamp of the local file and cloud file.
 
         Args:
-            dir_path [in]: the directory being uploaded.
+            mission [in]: an MissionInfo object.
+            blobpath [in]: relative path to the Blob root on Azure.
+            filename [in]: path to the file on a local machine.
+
+        Return:
+            0: equal timestamp (including both non-exists)
+            1: local file is newer (including cloud file non-exists)
+            2: cloud file is newer (including local file non-exists)
+        """
+
+        self.logger.debug("Comparing file %s and blob %s", filepath, blobpath)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
+        assert isinstance(blobpath, str), "Type error!"
+        assert isinstance(filepath, str), "Type error!"
+
+        local_mtime = datetime.datetime(
+            datetime.MINYEAR, 1, 1, tzinfo=datetime.timezone.utc)
+        cloud_mtime = datetime.datetime(
+            datetime.MINYEAR, 1, 1, tzinfo=datetime.timezone.utc)
+
+        # dealing with local file
+        if os.path.isfile(filepath):
+            local_mtime = datetime.datetime.utcfromtimestamp(
+                os.path.getmtime(filepath)).replace(
+                    microsecond=0, tzinfo=datetime.timezone.utc)
+
+        # dealing with cloud file
+        try:
+            entity = self.table_client.get_entity(
+                mission.table_name, "blobfiles", blobpath)
+        except azure.common.AzureMissingResourceHttpError:
+            entity = None
+
+        try:
+            blob_props = self.storage_client.get_blob_properties(
+                mission.container_name, blobpath).properties
+        except azure.common.AzureMissingResourceHttpError:
+            blob_props = None
+
+        # error case
+        if entity is not None and blob_props is None:
+            raise RuntimeError(
+                "Blob file {} does not exist ".format(blobpath) +
+                "in container %s, ".format(mission.container_name) +
+                "but its record can be found in " +
+                "table {}.".format(mission.table_name))
+
+        # both exist; calculate time delta and add to a base time
+        if entity is not None and blob_props is not None:
+
+            # check if the record match
+            if entity["local_path"] != os.path.abspath(filepath):
+                raise RuntimeError(
+                    "{} does not match the ".format(os.path.abspath(filepath)) +
+                    "local_path property of blob {}".format(blobpath))
+
+            cloud_mtime = blob_props.last_modified - \
+                entity["cloud_utc_mtime"] + entity["local_utc_mtime"]
+
+        # no entity implies this blob is created by computing nodes. Download
+        if entity is None and blob_props is not None:
+            cloud_mtime = datetime.datetime.utcnow().replace(
+                microsecond=0, tzinfo=datetime.timezone.utc)
+
+        self.logger.debug("local_mtime = %s", local_mtime)
+        self.logger.debug("cloud_mtime = %s", cloud_mtime)
+
+        if local_mtime == cloud_mtime:
+            return 0
+        elif local_mtime > cloud_mtime:
+            return 1
+        else:
+            return 2
+
+    def update_table_record(self, mission, blobpath, filepath):
+        """Updating a blob's record in the table.
+
+        Args:
+            mission [in]: an MissionInfo object.
+            blobpath [in]: relative path to the Blob root on Azure.
+            filename [in]: path to the file on a local machine.
+        """
+
+        self.logger.debug(
+            "Updating record of blob %s in table %s", blobpath, mission.table_name)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
+        assert isinstance(blobpath, str), "Type error!"
+        assert isinstance(filepath, str), "Type error!"
+
+        local_utc_mtime = datetime.datetime.utcfromtimestamp(
+            os.path.getmtime(filepath)).replace(
+                microsecond=0, tzinfo=datetime.timezone.utc)
+
+        cloud_utc_mtime = self.storage_client.get_blob_properties(
+            mission.container_name, blobpath).properties.last_modified
+
+        entity = {
+            "PartitionKey": "blobfiles", "RowKey": blobpath,
+            "local_utc_mtime": local_utc_mtime,
+            "cloud_utc_mtime": cloud_utc_mtime,
+            "local_path": os.path.abspath(filepath)}
+
+        self.table_client.insert_or_replace_entity(mission.table_name, entity)
+
+        self.logger.info(
+            "Done updating record in table %s", mission.table_name)
+
+    def upload_single_file(self, mission, blobpath, filepath, syncmode=True):
+        """Upload a file to a mission's sotrage container.
+
+        When syncmode is True, only when the timestamp of the local file is newer
+        than that of the cloud file (if exists), this function will upload a
+        file to cloud. If syncmode is False, this function will always upload
+        the file to cloud regardless the status of the file on the cloud.
+
+        Args:
+            mission [in]: an MissionInfo object.
+            blobpath [in]: relative path to the Blob root on Azure.
+            filename [in]: path to the file on a local machine.
+            syncmode [in]: use "syncronization mode" or "always upload" mode.
+        """
+
+        self.logger.debug("Uploading file %s to blob %s", filepath, blobpath)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
+        assert isinstance(blobpath, str), "Type error!"
+        assert isinstance(filepath, str), "Type error!"
+        assert isinstance(syncmode, bool), "Type, errir!"
+
+        if not os.path.isfile(filepath):
+            raise FileNotFoundError("{} does not exist".format(filepath))
+
+        # if we are in sync mode
+        if syncmode:
+            code = self.compare_timestamp(mission, blobpath, filepath)
+            upload = True if code == 1 else False
+        else:
+            upload = True
+
+        # upload to Azure storage
+        if upload:
+            self.storage_client.create_blob_from_path(
+                mission.container_name, blobpath, filepath, max_connections=4)
+
+            self.logger.info(
+                "Done uploading file %s to blob %s", filepath, blobpath)
+
+            # updating record in the table
+            self.update_table_record(mission, blobpath, filepath)
+        else:
+            self.logger.info(
+                "No need to upload file %s to blob %s", filepath, blobpath)
+
+    def download_single_file(self, mission, blobpath, filepath, syncmode=True):
+        """Download a file from a mission's sotrage container.
+
+        When syncmode is True, only when the timestamp of the cloud file is newer
+        than that of the local file (if exists), this function will download the
+        file from cloud. If syncmode is False, this function will always download
+        the file from cloud regardless the status of the local file.
+
+        Args:
+            mission [in]: an MissionInfo object.
+            blobpath [in]: relative path to the Blob root on Azure.
+            filename [in]: path to the file on a local machine.
+            syncmode [in]: use "syncronization mode" or "always download" mode.
+        """
+
+        self.logger.debug("Download blob %s to file %s", blobpath, filepath)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
+        assert isinstance(blobpath, str), "Type error!"
+        assert isinstance(filepath, str), "Type error!"
+        assert isinstance(syncmode, bool), "Type, errir!"
+
+        if not self.storage_client.exists(mission.container_name, blobpath):
+            raise FileNotFoundError("Blob {} does not exist".format(blobpath))
+
+        # if we are in sync mode
+        if syncmode:
+            code = self.compare_timestamp(mission, blobpath, filepath)
+            download = True if code == 2 else False
+        else:
+            download = True
+
+        # download from Azure storage
+        if download:
+            self.storage_client.get_blob_to_path(
+                mission.container_name, blobpath, filepath, max_connections=4)
+            self.logger.info(
+                "Done downloading blob %s to file %s", blobpath, filepath)
+
+            # updating record in the table
+            self.update_table_record(mission, blobpath, filepath)
+        else:
+            self.logger.info(
+                "No need to download blob %s to file %s", blobpath, filepath)
+
+    def upload_dir(self, mission, dirpath, ignore_exist=False):
+        """Upload a directory to a mission's storage container.
+
+        Args:
+            mission [in]: an MissionInfo object.
+            dirpath [in]: the path of the directory being uploaded.
+            ignore_exist
         """
 
         # get the full and absolute path (and basename)
