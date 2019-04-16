@@ -18,8 +18,8 @@ import datetime
 class MissionInfo():
     """A class holding information of a mission."""
 
-    def __init__(self, mission_name="", n_nodes_max=0, wd=".", tasks={},
-                 vm_type="STANDARD_H8"):
+    def __init__(self, mission_name="", n_nodes_max=0, wd=".", tasks=None,
+                 vm_type="STANDARD_H8", node_type="dedicated"):
         """Constructor.
 
         Args:
@@ -28,13 +28,14 @@ class MissionInfo():
             wd [in]: working directory. (default: current directory)
             tasks [in]: A pre-exist list of tasks.
             vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
+            node_type [in]: Either "dedicated" (default) or "low-priority".
         """
 
         # logger
         self.logger = logging.getLogger("AzureMission")
         self.logger.debug("Creating a MissionInfo instance.")
 
-        self.setup(mission_name, n_nodes_max, wd, tasks, vm_type)
+        self.setup(mission_name, n_nodes_max, wd, tasks, vm_type, node_type)
 
         self.logger.info("Done creating a MissionInfo instance.")
 
@@ -42,18 +43,20 @@ class MissionInfo():
         """__str__"""
 
         s = "Name: {}\n".format(self.name) + \
-            "Max. number of nodes: {}\n".format(self.n_max_nodes) + \
             "VM type: {}\n".format(self.vm_type) + \
             "Pool name: {}\n".format(self.pool_name) + \
             "Job (task scheduler) name: {}\n".format(self.job_name) + \
             "Storage container name: {}\n".format(self.container_name) + \
             "Current number of tasks: {}\n".format(len(self.tasks)) + \
+            "Max. number of nodes: {}\n".format(self.n_max_nodes) + \
+            "Auto-scaling formula: {}\n".format(self.auto_scaling_formula) + \
+            "Node type: {}\n".format(self.node_type) + \
             "Task tracker file name: {}\n".format(self.backup_file)
 
         return s
 
-    def setup(self, mission_name="", n_nodes_max=0, wd=".", tasks={},
-              vm_type="STANDARD_H8"):
+    def setup(self, mission_name="", n_nodes_max=0, wd=".", tasks=None,
+              vm_type="STANDARD_H8", node_type="dedicated"):
         """Setup the information of a mission.
 
         Args:
@@ -62,6 +65,7 @@ class MissionInfo():
             wd [in]: working directory. (default: current directory)
             tasks [in]: A pre-exist list of tasks.
             vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
+            node_type [in]: Either "dedicated" (default) or "low-priority".
         """
 
         self.logger.debug("Setting up a MissionInfo instance.")
@@ -69,7 +73,7 @@ class MissionInfo():
         assert isinstance(mission_name, str), "Type error!"
         assert isinstance(n_nodes_max, int), "Type error!"
         assert isinstance(wd, str), "Type error!"
-        assert isinstance(tasks, dict), "Type error!"
+        assert isinstance(tasks, dict) or tasks is None, "Type error!"
         assert isinstance(vm_type, str), "Type error!"
 
         # other properties
@@ -77,6 +81,7 @@ class MissionInfo():
         self.n_max_nodes = n_nodes_max # the number of computing nodes
         self.wd = os.path.normpath(os.path.abspath(wd))
         self.vm_type = vm_type # the type of virtual machines
+        self.node_type = node_type # using dedicated or low-priority nodes
 
         self.pool_name = "{}-pool".format(self.name) # pool/cluster name
         self.job_name = "{}-job".format(self.name) # task schduler name
@@ -86,8 +91,32 @@ class MissionInfo():
         self.container_token = None
         self.container_url = None
 
-        self.tasks = tasks.copy()
+        if tasks is None:
+            self.tasks = {}
+        else:
+            self.tasks = tasks.copy()
+
         self.backup_file = os.path.join(self.wd, "{}_backup_file.dat".format(self.name))
+
+        # a formula for auto-scaling of the pool
+        if self.node_type == "dedicated":
+            self.auto_scaling_formula = \
+                "$NodeDeallocationOption=taskcompletion;\n" + \
+                "sampleCounts=$PendingTasks.Count();\n" + \
+                "calculated=min({}, $PendingTasks.GetSample(1));\n".format(self.n_max_nodes) + \
+                "$TargetLowPriorityNodes=0;\n" + \
+                "$TargetDedicatedNodes=(sampleCounts>0)?calculated:0;"
+
+        elif self.node_type == "low-priority":
+            self.auto_scaling_formula = \
+                "$NodeDeallocationOption=taskcompletion;\n" + \
+                "sampleCounts=$PendingTasks.Count();\n" + \
+                "calculated=min({}, $PendingTasks.GetSample(1));\n".format(self.n_max_nodes) + \
+                "$TargetLowPriorityNodes=(sampleCounts>0)?calculated:0;\n" + \
+                "$TargetDedicatedNodes=0;"
+        else:
+            raise ValueError("node_type should be either dedicated or low-priority")
+
 
         self.logger.info("Done setting up a MissionInfo instance.")
 
@@ -171,6 +200,8 @@ class MissionInfo():
                 current_utc,
                 self.name,
                 self.n_max_nodes,
+                self.auto_scaling_formula,
+                self.node_type,
                 self.wd,
                 self.vm_type,
                 self.pool_name,
@@ -202,7 +233,8 @@ class MissionInfo():
             data_list = pickle.loads(f.read())
 
         # assign to each member from data_list
-        timestamp, self.name, self.n_max_nodes, self.wd, self.vm_type, \
+        timestamp, self.name, self.n_max_nodes, self.auto_scaling_formula, \
+            self.node_type, self.wd, self.vm_type, \
             self.pool_name, self.job_name, self.container_name, \
             self.container_token, self.container_url, self.tasks, \
             self.backup_file = data_list
