@@ -47,6 +47,7 @@ class MissionInfo():
             "Pool name: {}\n".format(self.pool_name) + \
             "Job (task scheduler) name: {}\n".format(self.job_name) + \
             "Storage container name: {}\n".format(self.container_name) + \
+            "Storage table name: {}\n".format(self.table_name) + \
             "Current number of tasks: {}\n".format(len(self.tasks)) + \
             "Max. number of nodes: {}\n".format(self.n_max_nodes) + \
             "Auto-scaling formula: {}\n".format(self.auto_scaling_formula) + \
@@ -86,6 +87,7 @@ class MissionInfo():
         self.pool_name = "{}-pool".format(self.name) # pool/cluster name
         self.job_name = "{}-job".format(self.name) # task schduler name
         self.container_name = "{}-container".format(self.name) # storage container name
+        self.table_name = "TABLE" + ''.join(e for e in self.name if e.isalnum())
 
         # we use one container for one mission, and we initialize the info here
         self.container_token = None
@@ -207,6 +209,7 @@ class MissionInfo():
                 self.pool_name,
                 self.job_name,
                 self.container_name,
+                self.table_name,
                 self.container_token,
                 self.container_url,
                 self.tasks,
@@ -235,7 +238,7 @@ class MissionInfo():
         # assign to each member from data_list
         timestamp, self.name, self.n_max_nodes, self.auto_scaling_formula, \
             self.node_type, self.wd, self.vm_type, \
-            self.pool_name, self.job_name, self.container_name, \
+            self.pool_name, self.job_name, self.container_name, self.table_name, \
             self.container_token, self.container_url, self.tasks, \
             self.backup_file = data_list
 
