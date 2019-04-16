@@ -460,8 +460,8 @@ class MissionController():
         self.logger.info(
             "Done updating record in table %s", mission.table_name)
 
-    def upload_single_file(self, mission, blobpath, filepath, syncmode=True):
-        """Upload a file to a mission's sotrage container.
+    def upload_local_file(self, mission, blobpath, filepath, syncmode=True):
+        """Upload a local file to a mission's sotrage container.
 
         When syncmode is True, only when the timestamp of the local file is newer
         than that of the cloud file (if exists), this function will upload a
@@ -488,7 +488,7 @@ class MissionController():
         # if we are in sync mode
         if syncmode:
             code = self.compare_timestamp(mission, blobpath, filepath)
-            upload = True if code == 1 else False
+            upload = (code == 1)
         else:
             upload = True
 
@@ -506,8 +506,8 @@ class MissionController():
             self.logger.info(
                 "No need to upload file %s to blob %s", filepath, blobpath)
 
-    def download_single_file(self, mission, blobpath, filepath, syncmode=True):
-        """Download a file from a mission's sotrage container.
+    def download_cloud_file(self, mission, blobpath, filepath, syncmode=True):
+        """Download a file from a mission's sotrage container to local machine.
 
         When syncmode is True, only when the timestamp of the cloud file is newer
         than that of the local file (if exists), this function will download the
@@ -534,7 +534,7 @@ class MissionController():
         # if we are in sync mode
         if syncmode:
             code = self.compare_timestamp(mission, blobpath, filepath)
-            download = True if code == 2 else False
+            download = (code == 2)
         else:
             download = True
 
@@ -550,6 +550,40 @@ class MissionController():
         else:
             self.logger.info(
                 "No need to download blob %s to file %s", blobpath, filepath)
+
+    def delete_cloud_file(self, mission, blobpath, ignore_not_exist=False):
+        """Delete a file in Azure blob storage and its record in Azure table.
+
+        Args:
+            mission [in]: an MissionInfo object.
+            blobpath [in]: relative path to the Blob root on Azure.
+        """
+
+        self.logger.debug("Deleting blob %s", blobpath)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
+        assert isinstance(blobpath, str), "Type error!"
+
+        if not self.storage_client.exists(mission.container_name, blobpath):
+            # if we choose to ignore it
+            if ignore_not_exist:
+                self.logger.info("Blob %s not exists. Skip.", blobpath)
+                return
+            # otherwise, raise an error
+            raise FileNotFoundError("Blob {} does not exist".format(blobpath))
+
+        # delete blob
+        self.storage_client.delete_blob(mission.container_name, blobpath)
+        self.logger.info("Done deleting blob %s", blobpath)
+
+        # delete record from Azure table
+        self.logger.debug("Deleting record of %s from the table", blobpath)
+        try:
+            self.table_client.delete_entity(
+                mission.table_name, "blobfiles", blobpath)
+        except azure.common.AzureMissingResourceHttpError:
+            pass
+        self.logger.info("Done deleting record of %s from the table", blobpath)
 
     def upload_dir(self, mission, dirpath, ignore_exist=False):
         """Upload a directory to a mission's storage container.
