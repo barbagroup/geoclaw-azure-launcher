@@ -324,45 +324,53 @@ class MissionController():
             self.logger.info(
                 "Pool %s not exist. Skip deletion.", mission.pool_name)
 
-    def create_job(self):
-        """Create a job (i.e. task scheduler) for this mission."""
+    def create_job(self, mission):
+        """Create a job (i.e. task scheduler) for this mission.
+
+        Args:
+            mission [in]: an MissionInfo object.
+        """
+
+        self.logger.debug("Creating job %s", mission.job_name)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
 
         # job parameters
         job_params = azure.batch.models.JobAddParameter(
-            id=self.info.job_name,
+            id=mission.job_name,
+            display_name=mission.name,
             pool_info=azure.batch.models.PoolInformation(
-                pool_id=self.info.pool_name))
-
-        logger.info("Issuing creation to job %s", self.info.job_name)
+                pool_id=mission.pool_name))
 
         # add job
         try:
             self.batch_client.job.add(job_params)
-            logger.info("Creation command issued.")
+            self.logger.info("Issued a command to create job %s", mission.job_name)
         except azure.batch.models.BatchErrorException as err:
             if err.message.value.startswith("The specified job already exists."):
-                logger.info("Job already exists. SKIP creation.")
+                self.logger.info("Job already exists. SKIP creation.")
             else:
                 raise
 
-        return "Done"
+    def delete_job(self, mission):
+        """Delete a job (i.e. task scheduler).
 
-    def delete_job(self):
-        """Delete the mission job (i.e. task scheduler)."""
+        Args:
+            mission [in]: an MissionInfo object.
+        """
 
-        logger.info("Issuing deletion to job %s", self.info.job_name)
+        self.logger.debug("Deleting job %s", mission.job_name)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
 
         try:
-            self.batch_client.job.delete(self.info.job_name)
+            self.batch_client.job.delete(mission.job_name)
+            self.logger.info("Issued a command to delete job %s", mission.job_name)
         except azure.batch.models.BatchErrorException as err:
             if err.message.value.startswith("The specified job does not exist."):
-                logger.info("Job does not exist. SKIP deletion.")
+                self.logger.info("Job does not exist. SKIP deletion.")
             else:
                 raise
-
-        logger.info("Deletion command issued.")
-
-        return "Done"
 
     def upload_dir(self, dir_path, ignore_exist=False):
         """Upload a directory to the mission container.
