@@ -190,20 +190,25 @@ class MissionController():
 
         self.logger.info("Done uploading file %s from blob %s", filepath, blobpath)
 
-    def create_pool(self):
-        """Create a pool on Azure based on the mission info."""
+    def create_pool(self, mission):
+        """Create a pool on Azure based on the mission info.
+
+        Args:
+            mission [in]: an MissionInfo object.
+        """
+
+        self.logger.debug("Creating pool %s", mission.pool_name)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
 
         # if the pool already exists (it does not mean it's ready)
-        if self.batch_client.pool.exists(pool_id=self.info.pool_name):
-            # update info.n_nodes
-            pool_info = self.batch_client.pool.get(self.info.pool_name)
-            self.info.n_nodes = pool_info.target_dedicated_nodes
-
-            logger.info("Pool %s already exists.", self.info.pool_name)
-            return "Already exist"
+        if self.batch_client.pool.exists(pool_id=mission.pool_name):
+            self.logger.info(
+                "Pool %s already exists. Skip creation.", mission.pool_name)
+            return
 
         # if the batch client is not aware of this pool
-        logger.info("Issuing creation to pool %s.", self.info.pool_name)
+        self.logger.debug("Issuing command to create pool %s.", mission.pool_name)
 
         # image
         image = azure.batch.models.ImageReference(
@@ -222,40 +227,53 @@ class MissionController():
             container_configuration=container_conf,
             node_agent_sku_id="batch.node.ubuntu 16.04")
 
+        # task scheduling setting
+        task_scheduling_conf = azure.batch.models.TaskSchedulingPolicy(
+            node_fill_type="spread")
+
         # pool setting
         pool_conf = azure.batch.models.PoolAddParameter(
-            id=self.info.pool_name,
+            id=mission.pool_name,
+            display_name=mission.pool_name,
+            vm_size=mission.vm_type,
             virtual_machine_configuration=vm_conf,
-            vm_size=self.info.vm_type,
-            target_dedicated_nodes=self.info.n_nodes)
+            enable_auto_scale=True,
+            auto_scale_formula=mission.auto_scaling_formula,
+            auto_scale_evaluation_interval=datetime.timedelta(minutes=5),
+            enable_inter_node_communication=False,
+            max_tasks_per_node=1,
+            task_scheduling_policy=task_scheduling_conf)
 
         # create the pool
         self.batch_client.pool.add(pool_conf)
 
-        logger.info("Creation command issued.")
+        self.logger.info("Creation command issued.")
 
-        return "Done"
+    def resize_pool(self, mission, n_nodes):
+        """Manually resize the pool.
 
-    def resize_pool(self, n_nodes):
-        """Resize the pool."""
+        Currently this function is not working because we use auto-scaling.
+        Manual resizing is not allowed when auto-scaling is enabled. So using
+        this function will raise an error coming from Azure.
+
+        Args:
+            mission [in]: an MissionInfo object.
+            n_nodes [in]: target number of nodes.
+        """
+
+        self.logger.debug("Resizing pool %s", mission.pool_name)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
 
         # if the pool already exists (it does not mean it's ready)
-        if not self.batch_client.pool.exists(pool_id=self.info.pool_name):
-            logger.error("Pool %s does not exist.", self.info.pool_name)
-            raise RuntimeError(
-                "Pool {} does not exist.".format(self.info.pool_name))
+        if not self.batch_client.pool.exists(pool_id=mission.pool_name):
+            self.logger.error("Pool %s not exist.", mission.pool_name)
+            raise RuntimeError("Pool {} not exist.".format(mission.pool_name))
 
         # get the number of nodes in the pool on Azure
-        pool_info = self.batch_client.pool.get(self.info.pool_name)
+        pool_info = self.batch_client.pool.get(mission.pool_name)
 
-        # check if the size of the pool matches the self
-        if pool_info.target_dedicated_nodes == n_nodes: # no change, skip
-            logger.info(
-                "Pool %s already has the specified number of nodes. Skip.",
-                self.info.pool_name)
-            return "No change"
-
-        logger.info("Issuing a resizing command to pool %s.", self.info.pool_name)
+        self.logger.debug("Issuing a command to resize pool %s.", mission.pool_name)
 
         # an alias for shorter code
         pool_resizing = azure.batch.models.AllocationState.resizing
@@ -263,41 +281,48 @@ class MissionController():
 
         # if the pool is under resizing, stop the resizing first
         if pool_info.allocation_state is pool_resizing:
-            self.batch_client.pool.stop_resize(self.info.pool_name)
+            self.batch_client.pool.stop_resize(mission.pool_name)
 
             while pool_info.allocation_state is not pool_steady:
                 time.sleep(2) # wait for 2 seconds
                 # get updated information of the pool
-                pool_info = self.batch_client.pool.get(self.info.pool_name)
+                pool_info = self.batch_client.pool.get(mission.pool_name)
+
+        # calculate actual nodes that are going to be allocated
+        dln = tln = 0
+        if mission.node_type == "dedicate":
+            dln = min(n_nodes, mission.n_max_nodes)
+        else:
+            tln = min(n_nodes, mission.n_max_nodes)
 
         # now resizing
         self.batch_client.pool.resize(
-            pool_id=self.info.pool_name,
+            pool_id=mission.pool_name,
             pool_resize_parameter=azure.batch.models.PoolResizeParameter(
-                target_dedicated_nodes=n_nodes,
+                target_dedicated_nodes=dln,
+                target_low_priority_nodes=tln,
                 node_deallocation_option="requeue"))
 
-        self.info.n_nodes = n_nodes
+        self.logger.info("Issued a command to resize pool %s.", mission.pool_name)
 
-        logger.info("Resizing command issued to pool %s.", self.info.pool_name)
+    def delete_pool(self, mission):
+        """Delete a pool on Azure based on the content set in self.
 
-        return "Done"
+        Args:
+            mission [in]: an MissionInfo object.
+        """
 
-    def delete_pool(self):
-        """Delete a pool on Azure based on the content set in self."""
+        self.logger.debug("Deleting pool %s", mission.pool_name)
 
-        logger.info("Issuing deletion to pool %s.", self.info.pool_name)
+        assert isinstance(mission, MissionInfo), "Type error!"
 
         # if the pool exists, issue a delete command
-        if self.batch_client.pool.exists(pool_id=self.info.pool_name):
-            self.batch_client.pool.delete(self.info.pool_name)
-            logger.info("Deletion command issued to pool %s.", self.info.pool_name)
-
-            return "Done"
+        if self.batch_client.pool.exists(pool_id=mission.pool_name):
+            self.batch_client.pool.delete(mission.pool_name)
+            self.logger.info("Deletion command issued to pool %s.", mission.pool_name)
         else:
-            logger.info(
-                "Pool %s does not exist. Skip deletion.", self.info.pool_name)
-            return "Not exist"
+            self.logger.info(
+                "Pool %s not exist. Skip deletion.", mission.pool_name)
 
     def create_job(self):
         """Create a job (i.e. task scheduler) for this mission."""
