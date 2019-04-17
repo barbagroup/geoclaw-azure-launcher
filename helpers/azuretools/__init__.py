@@ -7,14 +7,28 @@
 # Distributed under terms of the BSD 3-Clause license.
 
 """
-__init__.py
+Utilities for launching landspill simulations on Azure Batch clusters.
 """
 
-from .UserCredential import UserCredential
-from .MissionInfo import MissionInfo
-from .MissionController import MissionController
-from .MissionMonitor import MissionMonitor
-from .Mission import Mission
+# auto-reloading submodules in case users reload this package
+import importlib as _importlib
 
+try:
+    _importlib.reload(user_credential)
+    _importlib.reload(mission_info)
+    _importlib.reload(mission_controller)
+    _importlib.reload(mission_monitor)
+    _importlib.reload(mission)
+except:
+    pass
+
+# move core classes to this level
+from .user_credential import UserCredential
+from .mission_info import MissionInfo
+from .mission_controller import MissionController
+from .mission_monitor import MissionMonitor
+from .mission import Mission
+
+# meta data
 __version__ = "v1.0-alpha"
 __author__ = "Pi-Yueh Chuang (pychuang@gwu.edu)"

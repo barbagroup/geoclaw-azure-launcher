@@ -17,8 +17,8 @@ import base64
 import azure.batch.models
 import azure.storage.blob
 import azure.common
-from . import UserCredential
-from . import MissionInfo
+from .user_credential import UserCredential
+from .mission_info import MissionInfo
 from .misc import path_ignored
 
 
