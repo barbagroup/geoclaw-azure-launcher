@@ -14,34 +14,13 @@ import time
 import datetime
 import logging
 import base64
-import re
 import azure.batch.models
 import azure.storage.blob
 import azure.common
 from . import UserCredential
 from . import MissionInfo
+from .misc import path_ignored
 
-
-def path_ignored(filepath, ignore_patterns):
-    """An utility to check if the file path match any of the ignore patterns.
-
-    The ignore patterns is a list of regular expression (Python style).
-
-    Args:
-        filepath [in]: the path of a file.
-        ignore_patterns [in]: a list of regular expression strings.
-    """
-
-    assert isinstance(filepath, str), "Type error!"
-    assert isinstance(ignore_patterns, list), "Type error!"
-
-    for pattern in ignore_patterns:
-        result = re.search(pattern, filepath)
-
-        if result is not None:
-            return True
-
-    return False
 
 class MissionController():
     """MissionController"""
