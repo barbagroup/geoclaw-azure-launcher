@@ -723,41 +723,55 @@ class MissionController():
 
         self.logger.info("Done deleting directory %s", dirblobname)
 
-    def add_task(self, case, ignore_exist=False):
+    def add_task(self, mission, casename, casepath, ignore_exist=False):
         """Add a task to the mission's job (i.e., task scheduler).
 
         Args:
-            case [in]: str; the name of case directory
+            mission [in]: an MissionInfo object.
+            casename [in]: str; the name of the case
+            casepath [in]: str; the path to case's directory
+            ignore_exist [in]: skip adding this task if already exists
         """
 
+        self.logger.debug("Adding %s to job", casename)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
+        assert isinstance(casename, str), "Type error!"
+        assert isinstance(casepath, str), "Type error!"
+        assert isinstance(ignore_exist, bool), "Type error!"
+
+        if casename in mission.tasks:
+            if ignore_exist:
+                return
+
+        casepath = os.path.abspath(casepath)
+
         # upload to the storage container
-        self.upload_dir(case, ignore_exist)
+        self.upload_local_dir(mission, casename, casepath)
 
-        # get the full and absolute path
-        case_path = os.path.abspath(os.path.normpath(case))
-        case = os.path.basename(case_path)
-
+        # configuration of Docker image being used
         task_container_settings = azure.batch.models.TaskContainerSettings(
             image_name="barbagroup/landspill:bionic",
-            container_run_options="--rm " + \
-                "--workdir /home/landspill")
+            container_run_options="--rm --workdir /home/landspill")
 
+        # file that will be copied to VM from Azure storage
         input_data = [
             azure.batch.models.ResourceFile(
-                storage_container_url=self.container_url,
-                blob_prefix="{}/".format(case))]
+                storage_container_url=mission.container_url,
+                blob_prefix="{}/".format(casename))]
 
+        # file that will be copied to Azure storage from VM after simulation
         output_data = [
             azure.batch.models.OutputFile(
-                file_pattern="{}/**/*".format(case),
+                file_pattern="{}/**/*".format(casename),
                 upload_options=azure.batch.models.OutputFileUploadOptions(
                     upload_condition= \
                     azure.batch.models.OutputFileUploadCondition.task_completion),
                 destination=azure.batch.models.OutputFileDestination(
                     container= \
                     azure.batch.models.OutputFileBlobContainerDestination(
-                        container_url=self.container_url,
-                        path="{}".format(case)))),
+                        container_url=mission.container_url,
+                        path="{}".format(casename)))),
             azure.batch.models.OutputFile(
                 file_pattern="$AZ_BATCH_TASK_DIR/std*.txt",
                 upload_options=azure.batch.models.OutputFileUploadOptions(
@@ -766,25 +780,32 @@ class MissionController():
                 destination=azure.batch.models.OutputFileDestination(
                     container= \
                     azure.batch.models.OutputFileBlobContainerDestination(
-                        container_url=self.container_url,
-                        path="{}".format(case))))]
+                        container_url=mission.container_url,
+                        path="{}".format(casename))))]
 
+        # command to be executed on VM
         command = "/bin/bash -c \"" + \
-            "cp -r $AZ_BATCH_TASK_WORKING_DIR/{} ./ && ".format(case) + \
-            "run.py {} && ".format(case) + \
-            "createnc.py {} && ".format(case) + \
-            "cp -r ./{} $AZ_BATCH_TASK_WORKING_DIR".format(case) + \
+            "cp -r $AZ_BATCH_TASK_WORKING_DIR/{} ./ && ".format(casename) + \
+            "run.py {} && ".format(casename) + \
+            "createnc.py {} && ".format(casename) + \
+            "cp -r ./{} $AZ_BATCH_TASK_WORKING_DIR".format(casename) + \
             "\""
 
+        # setting up the task
         task_params = azure.batch.models.TaskAddParameter(
-            id=case,
+            id=casename,
             command_line=command,
             container_settings=task_container_settings,
             resource_files=input_data,
             output_files=output_data)
 
-        logger.info("Add task %s.", case)
-        self.batch_client.task.add(self.info.job_name, task_params)
+        # add the task to the job
+        self.batch_client.task.add(mission.job_name, task_params)
+
+        # add the case information to MissionInfo object
+        mission.add_task(casename, casepath)
+
+        self.logger.debug("Done adding %s to job", casename)
 
     def delete_task(self, case):
         """Delete a task from the mission's job (i.e., task scheduler)."""

@@ -150,10 +150,7 @@ class MissionInfo():
             case_path = os.path.abspath(case_path)
             self.tasks[case_name] = {
                 "path": case_path, "parent_path": os.path.dirname(case_path),
-                "uploaded": False, "downloaded": False,
-                "completed": False, "succeeded": False,
-                "last_modified": datetime.datetime.utcnow().replace(
-                    tzinfo=datetime.timezone.utc)}
+                "completed": False, "succeeded": False}
 
         self.logger.info("Done adding task %s to MissionInfo.", case_name)
 
