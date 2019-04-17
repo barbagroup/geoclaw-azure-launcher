@@ -13,14 +13,35 @@ import os
 import time
 import datetime
 import logging
-import pickle
 import base64
+import re
 import azure.batch.models
 import azure.storage.blob
 import azure.common
 from . import UserCredential
 from . import MissionInfo
 
+
+def path_ignored(filepath, ignore_patterns):
+    """An utility to check if the file path match any of the ignore patterns.
+
+    The ignore patterns is a list of regular expression (Python style).
+
+    Args:
+        filepath [in]: the path of a file.
+        ignore_patterns [in]: a list of regular expression strings.
+    """
+
+    assert isinstance(filepath, str), "Type error!"
+    assert isinstance(ignore_patterns, list), "Type error!"
+
+    for pattern in ignore_patterns:
+        result = re.search(pattern, filepath)
+
+        if result is not None:
+            return True
+
+    return False
 
 class MissionController():
     """MissionController"""
@@ -79,7 +100,7 @@ class MissionController():
 
         try:
             # create a container
-            created = self.storage_client.create_container(
+            self.storage_client.create_container(
                 container_name=container_name, fail_on_exist=True)
 
         # if something wrong when creating the container
@@ -546,6 +567,9 @@ class MissionController():
 
         # download from Azure storage
         if download:
+            # make sure all intermediate folders exist
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
             self.storage_client.get_blob_to_path(
                 mission.container_name, blobpath, filepath, max_connections=4)
             self.logger.info(
@@ -563,12 +587,14 @@ class MissionController():
         Args:
             mission [in]: an MissionInfo object.
             blobpath [in]: relative path to the Blob root on Azure.
+            ignore_not_exist [in]: ignore non-exist file or raise exception.
         """
 
         self.logger.debug("Deleting blob %s", blobpath)
 
         assert isinstance(mission, MissionInfo), "Type error!"
         assert isinstance(blobpath, str), "Type error!"
+        assert isinstance(ignore_not_exist, bool), "Type error!"
 
         if not self.storage_client.exists(mission.container_name, blobpath):
             # if we choose to ignore it
@@ -592,199 +618,110 @@ class MissionController():
             pass
         self.logger.info("Done deleting record of %s from the table", blobpath)
 
-    def upload_dir(self, mission, dirpath, ignore_exist=False):
+    def upload_local_dir(self, mission, dirblobname, dirpath,
+                         syncmode=True, ignore_patterns=["__pycache__"]):
         """Upload a directory to a mission's storage container.
 
         Args:
             mission [in]: an MissionInfo object.
-            dirpath [in]: the path of the directory being uploaded.
-            ignore_exist
+            dirblobname [in]: the blobpath relative to the container's root path.
+            dirpath [in]: path to the directory on a local machine.
+            syncmode [in]: use "syncronization mode" or "always upload" mode.
+            ignore_patterns [in]: a list of Python regular expression string.
         """
 
+        self.logger.debug("Uploading directory %s to blob %s", dirpath, dirblobname)
+
+        assert isinstance(mission, MissionInfo), "Type error!"
+        assert isinstance(dirblobname, str), "Type error!"
+        assert isinstance(dirpath, str), "Type error!"
+        assert isinstance(syncmode, bool), "Type, errir!"
+        assert isinstance(ignore_patterns, list), "Type, errir!"
+
+        if not os.path.isdir(dirpath):
+            raise FileNotFoundError("{} does not exist".format(dirpath))
+
         # get the full and absolute path (and basename)
-        dir_path = os.path.abspath(os.path.normpath(dir_path))
-        dir_base_name = os.path.basename(dir_path)
-
-        # check if the base name conflicts any uploaded cases
-        if dir_base_name in self.uploaded_dirs.keys() and not ignore_exist:
-            logger.error(
-                "A case with the same base name %s already exists in the \
-                 container. Can't upload it.", dir_base_name)
-            raise RuntimeError(
-                "A case with the same base name {} ".format(dir_base_name) +
-                "already exists in the container. Can't upload it.")
-
-        # check if the container was created
-        assert self.container_url is not None
-        assert self.container_token is not None
-
-        logger.info("Uploading directory %s.", dir_path)
+        dirpath = os.path.abspath(os.path.normpath(dirpath))
 
         # upload files
-        for dirpath, dirs, files in os.walk(dir_path):
+        for parent_dir, _, files in os.walk(dirpath):
             for f in files:
-                file_path = os.path.join(os.path.abspath(dirpath), f)
-                blob_name = os.path.relpath(file_path, os.path.dirname(dir_path))
+                filepath = os.path.join(parent_dir, f)
+                relfilepath = os.path.relpath(filepath, dirpath)
 
-                logger.info("Uploading file %s.", file_path)
-                self.storage_client.create_blob_from_path(
-                    container_name=self.info.container_name, blob_name=blob_name,
-                    file_path=file_path, max_connections=4)
-                logger.info("Done uploading file %s.", file_path)
+                if path_ignored(relfilepath, ignore_patterns):
+                    continue
 
-        logger.info("Done uploading directory %s.", dir_path)
+                fileblobname = os.path.join(dirblobname, relfilepath)
+                self.upload_local_file(mission, fileblobname, filepath, syncmode)
 
-        # add the case name and the parent path to the tracking list
-        self.uploaded_dirs[dir_base_name] = os.path.dirname(dir_path)
+        self.logger.info("Done uploading directory %s to blob %s", dirpath, dirblobname)
 
-        # write the uploaded info to a file and upload to the container as a log
-        with open(os.path.join(self.wd, "uploaded_dirs.dat"), "wb") as f:
-            f.write(pickle.dumps(self.uploaded_dirs))
+    def download_cloud_dir(self, mission, dirblobname, dirpath,
+                           syncmode=True, ignore_patterns=["__pycache__"]):
+        """Download a directory from the sotrage container to local machine.
 
-        logger.info("Uploading uploaded_dirs.dat")
-        self.storage_client.create_blob_from_path(
-            container_name=self.info.container_name, blob_name="uploaded_dirs.dat",
-            file_path=os.path.join(self.wd, "uploaded_dirs.dat"), max_connections=2)
-        logger.info("Done uploading uploaded_dirs.dat")
+        Args:
+            mission [in]: an MissionInfo object.
+            dirblobname [in]: the blobpath relative to the container's root path.
+            dirpath [in]: path to the directory on a local machine.
+            syncmode [in]: use "syncronization mode" or "always download" mode.
+            ignore_patterns [in]: a list of Python regular expression string.
+        """
 
-        os.remove(os.path.join(self.wd, "uploaded_dirs.dat"))
+        self.logger.debug(
+            "Downloading directory %s from blob %s", dirpath, dirblobname)
 
-        return "Done"
-
-    def download_dir(self, dir_path, download_raw_output=False,
-                     download_asc=False,
-                     ignore_downloaded=True, ignore_not_exist=True):
-        """Download a directory from the mission blob container."""
+        assert isinstance(mission, MissionInfo), "Type error!"
+        assert isinstance(dirblobname, str), "Type error!"
+        assert isinstance(dirpath, str), "Type error!"
+        assert isinstance(syncmode, bool), "Type, errir!"
+        assert isinstance(ignore_patterns, list), "Type, errir!"
 
         # get the full and absolute path
-        dir_path = os.path.abspath(os.path.normpath(dir_path))
-        dir_base_name = os.path.basename(dir_path)
-
-        # check if the container exists
-        assert self.container_url is not None
-        assert self.container_token is not None
-
-        if ignore_downloaded and (dir_base_name in self.downloaded):
-            logger.info("Directory %s already downloaded. Skip.", dir_path)
-            return "Already downloaded. Skip."
-
-        logger.info("Downloading directory %s.", dir_path)
-
-        if dir_base_name not in self.uploaded_dirs.keys():
-            if not ignore_not_exist:
-                logger.error(
-                    "Directory %s is not in the container.", dir_path)
-                raise RuntimeError(
-                    "Directory {} is not in the container.".format(dir_path))
-            else:
-                logger.warning(
-                    "Directory %s is not in the container. SKIP.", dir_path)
-
-                return "Not found on Azure. Skip."
+        dirpath = os.path.abspath(os.path.normpath(dirpath))
 
         blob_list = self.storage_client.list_blobs(
-            container_name=self.info.container_name,
-            prefix="{}/".format(dir_base_name), num_results=50000)
+            mission.container_name,
+            prefix="{}/".format(dirblobname), num_results=50000)
 
         for blob in blob_list:
-            file_abs_path = os.path.join(
-                self.uploaded_dirs[dir_base_name], blob.name)
+            relblob = os.path.relpath(blob.name, dirblobname)
 
-            f_dir, f = os.path.split(file_abs_path)
-            base, ext = os.path.splitext(f)
-
-            # check whether to skip raw results
-            if not download_raw_output:
-                if ext == ".data":
-                    continue
-
-                if base in ["fort", "claw_git_diffs", "claw_git_status"]:
-                    continue
-
-            # check whether to skip raster files (topo & hydro)
-            if not download_asc and ext in [".asc", ".prj"]:
+            # check against ignored patterhs
+            if path_ignored(relblob, ignore_patterns):
                 continue
 
-            # never download __pycache__
-            if os.path.split(f_dir)[1] == "__pycache__":
-                continue
+            filename = os.path.join(dirpath, relblob)
+            self.download_cloud_file(mission, blob.name, filename, syncmode)
 
-            if not os.path.isdir(os.path.dirname(file_abs_path)):
-                os.makedirs(os.path.dirname(file_abs_path))
+        self.logger.info(
+            "Done downloading directory %s from blob %s", dirpath, dirblobname)
 
-            logger.info("Downloading file %s.", file_abs_path)
-            self.storage_client.get_blob_to_path(
-                container_name=self.info.container_name,
-                blob_name=blob.name, file_path=file_abs_path)
-            logger.info("Done downloading file %s.", file_abs_path)
+    def delete_cloud_dir(self, mission, dirblobname, ignore_not_exist=False):
+        """Delete a folder in Azure blob storage and its record in Azure table.
 
-        logger.info("Done downloading directory %s.", dir_path)
+        Args:
+            mission [in]: an MissionInfo object.
+            dirblobname [in]: relative path to the Blob root on Azure.
+            ignore_not_exist [in]: ignore non-exist file or raise exception.
+        """
 
-        # add the case name to the tracking list
-        self.downloaded.append(dir_base_name)
+        self.logger.debug("Deleting %s from container.", dirblobname)
 
-        # write the downloaded info to a file and upload to the container as a log
-        with open(os.path.join(self.wd, "downloaded.dat"), "wb") as f:
-            f.write(pickle.dumps(self.downloaded))
+        assert isinstance(mission, MissionInfo), "Type error!"
+        assert isinstance(dirblobname, str), "Type error!"
+        assert isinstance(ignore_not_exist, bool), "Type error!"
 
-        logger.info("Uploading downloaded.dat")
-        self.storage_client.create_blob_from_path(
-            container_name=self.info.container_name, blob_name="downloaded.dat",
-            file_path=os.path.join(self.wd, "downloaded.dat"), max_connections=2)
-        logger.info("Done uploading downloaded.dat")
+        blob_list = self.storage_client.list_blobs(
+            mission.container_name,
+            prefix="{}/".format(dirblobname), num_results=50000)
 
-        os.remove(os.path.join(self.wd, "downloaded.dat"))
+        for blob in blob_list:
+            self.delete_cloud_file(mission, blob.name, ignore_not_exist)
 
-        return "Done."
-
-    def delete_dir(self, dir_path, ignore_not_exist=True):
-        """Delete a directory from the mission's container."""
-
-        # get the full and absolute path
-        dir_path = os.path.abspath(os.path.normpath(dir_path))
-        dir_base_name = os.path.basename(dir_path)
-
-        # check if the container exists
-        assert self.container_url is not None
-        assert self.container_token is not None
-
-        logger.info("Deleting %s from container.", dir_base_name)
-
-        if dir_base_name not in self.uploaded_dirs.keys():
-            if not ignore_not_exist:
-                logger.error(
-                    "Directory %s is not in the container.", dir_path)
-                raise RuntimeError(
-                    "Directory {} is not in the container.".format(dir_path))
-            else:
-                logger.warning(
-                    "Directory %s is not in the container. SKIP.", dir_path)
-        else:
-            blob_list = self.storage_client.list_blobs(
-                container_name=self.info.container_name,
-                prefix="{}/".format(dir_base_name), num_results=50000)
-
-            for blob in blob_list:
-                logger.info("Deleting file %s.", blob.name)
-                self.storage_client.delete_blob(
-                    container_name=self.info.container_name,
-                    blob_name=blob.name)
-                logger.info("Done deleting file %s.", blob.name)
-
-            logger.info("Done deleting directory %s.", dir_path)
-
-            logger.info("Updating uploaded_dirs.dat")
-            del self.uploaded_dirs[dir_base_name]
-            with open(os.path.join(self.wd, "uploaded_dirs.dat"), "wb") as f:
-                f.write(pickle.dumps(self.uploaded_dirs))
-
-            logger.info("Uploading uploaded_dirs.dat")
-            self.storage_client.create_blob_from_path(
-                container_name=self.info.container_name, blob_name="uploaded_dirs.dat",
-                file_path=os.path.join(self.wd, "uploaded_dirs.dat"), max_connections=2)
-            logger.info("Done uploading uploaded_dirs.dat")
-
-            os.remove(os.path.join(self.wd, "uploaded_dirs.dat"))
+        self.logger.info("Done deleting directory %s", dirblobname)
 
     def add_task(self, case, ignore_exist=False):
         """Add a task to the mission's job (i.e., task scheduler).
