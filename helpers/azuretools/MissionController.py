@@ -14,6 +14,7 @@ import time
 import datetime
 import logging
 import pickle
+import base64
 import azure.batch.models
 import azure.storage.blob
 import azure.common
@@ -379,9 +380,10 @@ class MissionController():
                     microsecond=0, tzinfo=datetime.timezone.utc)
 
         # dealing with cloud file
+        blobkey = base64.urlsafe_b64encode(blobpath.encode()).decode()
         try:
             entity = self.table_client.get_entity(
-                mission.table_name, "blobfiles", blobpath)
+                mission.table_name, "blobfiles", blobkey)
         except azure.common.AzureMissingResourceHttpError:
             entity = None
 
@@ -421,10 +423,12 @@ class MissionController():
 
         if local_mtime == cloud_mtime:
             return 0
-        elif local_mtime > cloud_mtime:
+
+        if local_mtime > cloud_mtime:
             return 1
-        else:
-            return 2
+
+        # else cloud_mtime > local_mtime
+        return 2
 
     def update_table_record(self, mission, blobpath, filepath):
         """Updating a blob's record in the table.
@@ -449,8 +453,10 @@ class MissionController():
         cloud_utc_mtime = self.storage_client.get_blob_properties(
             mission.container_name, blobpath).properties.last_modified
 
+        blobkey = base64.urlsafe_b64encode(blobpath.encode()).decode()
+
         entity = {
-            "PartitionKey": "blobfiles", "RowKey": blobpath,
+            "PartitionKey": "blobfiles", "RowKey": blobkey,
             "local_utc_mtime": local_utc_mtime,
             "cloud_utc_mtime": cloud_utc_mtime,
             "local_path": os.path.abspath(filepath)}
@@ -579,8 +585,9 @@ class MissionController():
         # delete record from Azure table
         self.logger.debug("Deleting record of %s from the table", blobpath)
         try:
+            blobkey = base64.urlsafe_b64encode(blobpath.encode()).decode()
             self.table_client.delete_entity(
-                mission.table_name, "blobfiles", blobpath)
+                mission.table_name, "blobfiles", blobkey)
         except azure.common.AzureMissingResourceHttpError:
             pass
         self.logger.info("Done deleting record of %s from the table", blobpath)
