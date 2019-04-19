@@ -204,3 +204,44 @@ class GraphicalMonitor():
         ax.legend(wedges, labels, ncol=len(labels), loc=9, bbox_to_anchor=(0.5, 1.0))
         ax.set_title(title)
         ax.axis("off")
+
+if __name__ == "__main__":
+    import argparse
+    from user_credential import UserCredential
+    from mission_info import MissionInfo
+    from mission_status_reporter import MissionStatusReporter
+
+    parser = argparse.ArgumentParser(
+        description="Graphical monitor of Azure batch pool and job")
+
+    parser.add_argument(
+        "missionname", metavar="mission-name", action="store", type=str,
+        help="Name of the miission.")
+
+    parser.add_argument(
+        "credential", metavar="credential-file", action="store", type=str,
+        help="An encrpyted file of Azure Batch and Storage credentials.")
+
+    parser.add_argument(
+        "passcode", metavar="passcode", action="store", type=str,
+        help="Passcode to decode credential file.")
+
+    parser.add_argument(
+        "--interval", metavar="seconds", action="store", type=int, default=30,
+        help="Seconds between status updates. (default: %(default)s)")
+
+    args = parser.parse_args()
+
+    # dummy MissionInfo object (only providing the name of the mission)
+    info = MissionInfo(args.missionname)
+
+    # UserCredential object
+    cred = UserCredential()
+    cred.read_encrypted(args.passcode, args.credential)
+
+    # MissionStatusReporter
+    reporter = MissionStatusReporter(cred)
+
+    # GraphicalMonitor
+    monitor = GraphicalMonitor()
+    monitor(info, reporter, args.interval)
