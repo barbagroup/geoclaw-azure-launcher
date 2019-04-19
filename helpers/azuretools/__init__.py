@@ -17,16 +17,19 @@ try:
     _importlib.reload(user_credential)
     _importlib.reload(mission_info)
     _importlib.reload(mission_controller)
-    _importlib.reload(mission_monitor)
+    _importlib.reload(mission_status_reporter)
+    _importlib.reload(graphical_monitor)
     _importlib.reload(mission)
-except:
+except NameError as err:
     pass
+
 
 # move core classes to this level
 from .user_credential import UserCredential
 from .mission_info import MissionInfo
 from .mission_controller import MissionController
-from .mission_monitor import MissionMonitor
+from .mission_status_reporter import MissionStatusReporter
+from .graphical_monitor import GraphicalMonitor
 from .mission import Mission
 
 # meta data
