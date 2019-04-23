@@ -6,23 +6,26 @@
 #
 # Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """
 ArcGIS Pro Python toolbox.
 """
 import os
+import importlib
 import numpy
 import helpers.arcgistools
 import helpers.azuretools
-import importlib
-importlib.reload(helpers.arcgistools)
+importlib.reload(helpers.azuretools)
 
 
 class Toolbox(object):
+    """Definition of the toolbox."""
+
     def __init__(self):
         """Define the toolbox (the name of the toolbox is the name of the
         .pyt file)."""
+
         self.label = "Land-spill Azure"
         self.alias = "landspill"
 
