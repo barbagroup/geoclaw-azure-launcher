@@ -4,265 +4,228 @@
 #
 # Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """
 A class represeting a batch of simulations.
 """
 import os
 import sys
-import time
 import logging
-import numpy
 from .user_credential import UserCredential
 from .mission_info import MissionInfo
 from .mission_controller import MissionController
-from .mission_monitor import MissionMonitor
+from .mission_status_reporter import MissionStatusReporter
 
 
 class Mission:
     """ class represeting a batch of simulation tasks."""
 
-    def __init__(self, user_credential, mission_name, n_nodes_max,
-                 tasks, output=sys.stdout, log=True, vm_type="STANDARD_H8",
-                 wd="."):
-        """__init__
+    def __init__(self):
+        """Default constructor."""
+
+        self.info = None # information holder
+        self.logger = None # logger
+
+        self.credential = None # Azure credential
+        self.controller = None # resource controller
+        self.reporter = None # status reporter
+
+    def __del__(self):
+        """Destructor."""
+
+        self.logger.handlers[0].close()
+        self.logger.removeHandler(self.logger.handlers[0])
+
+    def _init_logger(self, level=logging.INFO):
+        """Initialize logger."""
+
+        self.logger = logging.getLogger("AzureMission")
+
+        formatter = logging.Formatter("[%(asctime)s][%(levelname)s][%(filename)s] %(message)s\n")
+        fh = logging.FileHandler(os.path.join(self.info.wd, "AzureMission.log"), "w", "utf-8")
+        fh.setLevel(level)
+        fh.setFormatter(formatter)
+
+        self.logger.addHandler(fh)
+
+        self.logger.info("AzureMission logger initialization succeeded.")
+
+    def init_info(self, mission_name="", n_nodes_max=0, wd=".", vm_type="STANDARD_H8",
+             node_type="dedicated", log_level=logging.INFO):
+        """Initialize the information.
 
         Args:
             mission_name [in]: A str for the name of this mission.
-            n_nodes_max [in]: Maximum number of computing nodes.
-            tasks [in]: A list of task/case directory.
-            output [optional]: output file. (default: stdout)
-            log [optional]: A boolean whether to log events or not.
-            vm_type [optional]: The type of virtual machine. (default: STANDARD_H8)
+            n_nodes_max [in]: Total number of computing nodes requested.
+            wd [in]: working directory. (default: current directory)
+            vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
+            node_type [in]: Either "dedicated" (default) or "low-priority".
+            log_level [in]: Python logging level.
         """
 
-        assert isinstance(user_credential, UserCredential), "Type error!"
-        assert isinstance(mission_name, str), "Type error!"
-        assert isinstance(n_nodes_max, (int, numpy.int_)), "Type error!"
-        assert isinstance(tasks, (list, numpy.ndarray)), "Type error!"
-        assert isinstance(vm_type, str), "Type error!"
+        self.info = MissionInfo(mission_name, n_nodes_max, wd, vm_type, node_type)
+        self._init_logger(log_level)
 
-        # Azure credential
-        self.credential = user_credential
+        self.logger.info("Mission instance initialization succeeded.")
 
-        # initialize mission information
-        self.info = MissionInfo(
-            mission_name, min(n_nodes_max, len(tasks)), tasks, vm_type)
+    def init_info_from_file(self, filename, log_level=logging.INFO):
+        """Read a MissionInfo instance from a file.
 
-        # backup the value of n_node_max
-        self.max_nodes = n_nodes_max
+        Args:
+            filename [in]: the file where the backup file is located.
+            log_level [in]: Python logging level.
 
-        # working directory
-        self.wd = os.path.normpath(os.path.abspath(wd))
+        Return:
+            The UTC time stamp at when the backup is done.
+        """
 
-        # mission controller
-        self.controller = MissionController(self.credential, self.info, self.wd)
+        self.info = MissionInfo()
+        self.info.read_mission_info(filename)
+        self._init_logger(log_level)
 
-        # mission monitor
-        self.monitor = MissionMonitor(self.credential, self.info)
+        self.logger.info("Mission instance read succeeded.")
 
-        # output file
-        if isinstance(output, str):
-            self.output = open(output, "w")
-            self.close_output = True
-        else:
-            self.output = output
-            self.close_output = False
+    def write_info_to_file(self):
+        """Backup the MissionInfo instance to a file.
 
-        # logging
-        if log:
-            logfile = os.path.join(self.wd, "{}.log".format(mission_name))
-            if os.path.isfile(logfile):
-                try:
-                    os.remove(logfile)
-                except PermissionError:
-                    pass
+        Return:
+            The UTC time stamp at when the backup is done.
+        """
 
-            logging.basicConfig(
-                filename=logfile, level=logging.DEBUG,
-                format="[%(asctime)s][%(levelname)s][%(filename)s] %(message)s\n")
-        else:
-            logging.basicConfig(filename=os.devnull)
+        self.info.write_mission_info()
 
-    def __del__(self):
-        """__del__"""
+        self.logger.info("Mission instance write succeeded.")
 
-        if self.close_output:
-            self.output.close()
+    def setup_communication(self, cred_file, cred_pass):
+        """Setup communication between local and Azure.
 
-        try:
-            logger = logging.getLogger()
-            logger.handlers[0].close()
-            logger.removeHandler(logger.handlers[0])
-        except:
-            pass
+        Args:
+            cred_file [in]: encrypted file containing credential.
+            cred_pass [in]: passcode to decrypt the file.
+        """
 
-    def __str__(self):
-        """__str__"""
-        pass
+        self.credential = UserCredential()
+        self.credential.read_encrypted(cred_pass, cred_file)
 
-    def _log_info(self, msg, *args):
-        """A helper function for logging and printing info."""
+        self.controller = MissionController(self.credential)
+        self.reporter = MissionStatusReporter(self.credential)
 
-        logging.info(msg, *args)
+        self.logger.info("Local-Azure communication setup succeeded.")
 
-        msg = msg.replace("%s", "{}")
-        print(msg.format(*args), file=self.output)
+    def create_resources(self, pool=True, job=True, storage=True):
+        """Create resources on Azure.
 
-    def start(self, ignore_local_nonexist=True,
-              ignore_azure_exist=True, resizing=False):
-        """Start the mission."""
+        Args:
+            pool [in]: whether to create pool (default: True)
+            job [in]: whether to create job (default: True)
+            storage [in]: whether to create storage container (default: True)
+        """
 
-        self._log_info("Starting mission %s.", self.info.name)
+        if pool:
+            self.controller.create_pool(self.info)
+            self.logger.info("Pool of the mission %s created.", self.info.name)
 
-        self._log_info("Creating/Updating the pool")
-        self.controller.create_pool()
+        if job:
+            self.controller.create_job(self.info)
+            self.logger.info("Job of the mission %s created.", self.info.name)
 
-        if resizing:
-            self._log_info("Resizing the pool")
-            self.controller.resize_pool(min(self.max_nodes, len(self.info.tasks)))
+        if storage:
+            self.controller.create_storage_container(self.info)
+            self.controller.get_storage_container_access_tokens(self.info)
+            self.logger.info("Storage of the mission %s created.", self.info.name)
 
-        self._log_info("Creating/Updating the job")
-        self.controller.create_job()
+        self.logger.info("Resources of the mission %s created.", self.info.name)
 
-        self._log_info("Creating/Updating the container")
-        self.controller.create_storage_container()
+    def clear_resources(self, pool=True, job=True, storage=True):
+        """Delete resources on Azure.
 
-        for task in self.info.tasks:
-            self.add_task(task, ignore_local_nonexist, ignore_azure_exist)
+        Args:
+            pool [in]: whether to delete pool (default: True)
+            job [in]: whether to delete job (default: True)
+            storage [in]: whether to delete storage container (default: True)
+        """
 
-        self._log_info("Mission %s started.", self.info.name)
+        if storage:
+            self.controller.delete_storage_container(self.info)
+            self.info.container_url = None
+            self.info.container_token = None
+            logging.info("Storage of the mission %s deleted.", self.info.name)
 
-    def monitor_wait_download(self, cycle_time=10, resizing=True, download=True):
-        """Monitor progress and wait until all tasks done."""
+        if job:
+            self.controller.delete_job(self.info)
+            logging.info("Job of the mission %s deleted.", self.info.name)
 
-        while True:
+        if pool:
+            self.controller.delete_pool(self.info)
+            logging.info("Pool of the mission %s deleted.", self.info.name)
 
-            task_states = self.monitor.report_all_task_status()
-            task_statistic = self.monitor.report_job_task_overview()
-            print(self.monitor.report_mission(), file=self.output)
+        logging.info("Resources of the mission %s deleted.", self.info.name)
 
-            for task, state in task_states.items():
-
-                if state == "completed" and task not in self.controller.downloaded:
-                    print("Task {} completed. Downloading.".format(task), file=self.output)
-                    self.controller.download_dir(task)
-                    print("Downloading done.", file=self.output)
-
-                if state == "failed" and task not in self.controller.downloaded:
-                    print("Task {} failed. Downloading.".format(task), file=self.output)
-                    self.controller.download_dir(task)
-                    print("Downloading done.", file=self.output)
-
-            unfinished = task_statistic[0] - task_statistic[2] - task_statistic[3]
-
-            if unfinished == 0:
-                break
-
-            if resizing and self.info.n_nodes != min(unfinished, self.max_nodes):
-                print("\nResizing the pool.", file=self.output)
-                self.controller.resize_pool(min(unfinished, self.max_nodes))
-
-            time.sleep(cycle_time)
-
-    def adapt_size(self):
-        """Automatically resize the pool."""
-
-        task_statistic = self.monitor.report_job_task_overview()
-        unfinished = task_statistic[0] - task_statistic[2] - task_statistic[3]
-        self.controller.resize_pool(min(unfinished, self.max_nodes))
-
-    def clear_resources(self):
-        """Delete everything on Azure."""
-
-        print("Delete storagr container.", file=self.output)
-        self.controller.delete_storage_container()
-        print("Delete job.", file=self.output)
-        self.controller.delete_job()
-        print("Delete pool.", file=self.output)
-        self.controller.delete_pool()
-
-        logging.info("Mission %s completed.", self.info.name)
-
-    def add_task(self, task, ignore_local_nonexist=True, ignore_azure_exist=True):
+    def add_task(self, casename, casepath, ignore_exist=True):
         """Add additional task to the task scheduler."""
 
-        task_real_name = os.path.basename(os.path.abspath(task))
-        task_status = self.monitor.report_task_status(task_real_name)
-
-        # handling cases that the folder does not exist locally
-        if not os.path.isdir(os.path.abspath(task)):
-            if ignore_local_nonexist:
-                self._log_info(
-                    "Case folder %s not found. Skip.", os.path.abspath(task))
-                return "Local folder not found, Skip"
-            else:
-                logging.error("Case folder %s not found.", os.path.abspath(task))
-                raise FileNotFoundError(
-                    "Case folder not found: {}".format(os.path.abspath(task)))
-
-        # local caase folder exists but also exist on Azure
-        if task_status != "N/A":
-            if ignore_azure_exist:
-                self._log_info("Case %s exists on Azure. Skip.", task)
-                self.info.add_task(task, True)
-                return "Task already exists on Azure. Skip"
-            else:
-                logging.error("Case %s exists on Azure.", task)
-                raise FileExistsError(
-                    "Case already exists on Azure: {}".format(task))
-        # local case folder exists and does not exist on Azure
-        else:
-            self._log_info("Adding/Updating task %s", task)
-            self.controller.add_task(task, ignore_azure_exist)
-            self.info.add_task(task)
-
-        return "Done"
+        self.controller.add_task(self.info, casename, casepath, ignore_exist)
 
     def get_monitor_string(self):
         """Get a string for outputing."""
 
+        return self.reporter.get_overview_string(self.info)
+
+    def monitor_and_terminate(self):
+        """Print status until all tasks are done and terminate mission."""
+        import time
         import datetime
-        s = "\n{}\n".format(str(datetime.datetime.now().replace(microsecond=0)))
 
-        # pool status and node status
-        s += "\n\n"
-        s += "Pool (cluster) name: {}\n".format(self.info.pool_name)
-        s += "Pool status: {0[0]} and {0[1]}\n".format(self.monitor.report_pool_status())
+        keep_running = True
 
-        node_list = self.monitor.report_all_node_status()
+        while keep_running:
 
-        if len(node_list) > 0:
-            s += "Node status:\n"
+            print()
+            print(datetime.datetime.now().replace(microsecond=0))
+            print(self.get_monitor_string())
 
-        for node, stat in node_list.items():
-            s += "\t{}: {}\n".format(node, stat)
+            time.sleep(30)
 
-        # job & task status
-        s += "\n\n"
-        s += "Job (task scheduler) name: {}\n".format(self.info.job_name)
-        s += "Job status: {}\n".format(self.monitor.report_job_status())
+            _, status = self.reporter.get_job_status(self.info)
+            if status["active"]+status["running"] == 0:
+                keep_running = False
 
-        task_list = self.monitor.report_all_task_status()
+        print("All tasks done.")
 
-        if len(task_list) > 0:
-            s += "Task status:\n"
+    def download_cases(
+            self, syncmode=True, ignore_raw_data=True, ignore_figures=True,
+            ignore_rasters=True):
+        """Download case folderd.
 
-        for task, stat in task_list.items():
-            s += "\t{}: {}\n".format(task, stat)
+        Args:
+            syncmode [in]: to use sync mode or always download.
+            ignore_raw_data [in]: ignore GeoClaw raw data (default: True)
+            ignore_figures [in]: ignore figures (default: True)
+            ignore_rasters [in]: ignore raster files (default: True)
+        """
 
-        # storage container status
-        s += "\n\n"
-        s += "Storage Blob container name: {}\n".format(self.info.container_name)
-        s += "Container status: {}\n".format(self.monitor.report_storage_container_status())
+        ignore_patterns = ["__pycache__"]
 
-        dir_list = self.monitor.report_storage_container_dirs()
+        if ignore_raw_data:
+            ignore_patterns += [".*?\.data", "fort\..*?"]
 
-        if len(dir_list) > 0:
-            s += "Directories in the container:\n"
+        if ignore_figures:
+            ignore_patterns += ["_plots"]
 
-        for d, info in dir_list.items():
-            s += "\t {}: {}, {}\n".format(d, info[0], info[1])
+        if ignore_rasters:
+            ignore_patterns += [".*?\.asc", ".*?\.prj"]
 
-        return s
+        for casename, values in self.info.tasks.items():
+            self.controller.download_cloud_dir(
+                self.info, casename, values["path"], syncmode, ignore_patterns)
+
+    def get_graphical_monitor(self, cred_file, cred_pass):
+        """Get a graphical monitor."""
+        import subprocess
+
+        this_file = os.path.abspath(__file__)
+        exec_file = os.path.join(os.path.dirname(this_file), "graphical_monitor.py")
+
+        subprocess.Popen([
+            sys.executable, exec_file, self.info.name, cred_file, cred_pass])
