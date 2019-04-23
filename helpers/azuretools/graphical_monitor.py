@@ -201,6 +201,7 @@ class GraphicalMonitor():
         # center text, title, y limits, legends
         ax.annotate(center_text, xy=(0, 0), xytext=(0, 0), va="center", ha="center")
         ax.set_ylim(-1.2, 1.4)
+        ax.set_xlim(-2.0, 2.0)
         ax.legend(wedges, labels, ncol=len(labels), loc=9, bbox_to_anchor=(0.5, 1.0))
         ax.set_title(title)
         ax.axis("off")

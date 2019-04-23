@@ -100,14 +100,14 @@ class MissionInfo():
                 "sampleCounts=$PendingTasks.Count();\n" + \
                 "calculated=min({}, $PendingTasks.GetSample(1));\n".format(self.n_max_nodes) + \
                 "$TargetLowPriorityNodes=0;\n" + \
-                "$TargetDedicatedNodes=(sampleCounts>0)?calculated:0;"
+                "$TargetDedicatedNodes=(sampleCounts>0)?calculated:{};".format(self.n_max_nodes)
 
         elif self.node_type == "low-priority":
             self.auto_scaling_formula = \
                 "$NodeDeallocationOption=taskcompletion;\n" + \
                 "sampleCounts=$PendingTasks.Count();\n" + \
                 "calculated=min({}, $PendingTasks.GetSample(1));\n".format(self.n_max_nodes) + \
-                "$TargetLowPriorityNodes=(sampleCounts>0)?calculated:0;\n" + \
+                "$TargetLowPriorityNodes=(sampleCounts>0)?calculated:{};\n".format(self.n_max_nodes) + \
                 "$TargetDedicatedNodes=0;"
         else:
             raise ValueError("node_type should be either dedicated or low-priority")

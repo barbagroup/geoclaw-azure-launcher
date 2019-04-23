@@ -22,7 +22,7 @@ if __name__ == "__main__":
     # get the path to the repo
     test_dir = os.path.dirname(os.path.abspath(__file__))
     backup = os.path.join(test_dir, "test_backup_file.dat")
-    logging.basicConfig(filename=os.path.join(test_dir, "test.log"), level=logging.INFO)
+    logging.basicConfig(filename=os.devnull)
 
     # add repo directory to module search path and import
     sys.path.insert(0, os.path.dirname(test_dir))

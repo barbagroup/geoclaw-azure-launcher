@@ -41,6 +41,7 @@ class Mission:
         """Initialize logger."""
 
         self.logger = logging.getLogger("AzureMission")
+        self.logger.setLevel(level)
 
         formatter = logging.Formatter("[%(asctime)s][%(levelname)s][%(filename)s] %(message)s\n")
         fh = logging.FileHandler(os.path.join(self.info.wd, "AzureMission.log"), "w", "utf-8")
@@ -165,7 +166,9 @@ class Mission:
     def add_task(self, casename, casepath, ignore_exist=True):
         """Add additional task to the task scheduler."""
 
+        self.logger.debug("Adding {}".format(casename))
         self.controller.add_task(self.info, casename, casepath, ignore_exist)
+        self.logger.debug("Done adding {}".format(casename))
 
     def get_monitor_string(self):
         """Get a string for outputing."""

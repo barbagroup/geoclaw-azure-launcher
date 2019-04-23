@@ -721,6 +721,7 @@ class MissionController():
 
         if casename in mission.tasks:
             if ignore_exist:
+                self.logger.info("%s already in job. Skip.", casename)
                 return
             # if choose not to ignore, delete the existing task
             self.delete_task(mission, casename)
@@ -789,7 +790,7 @@ class MissionController():
         # add the case information to MissionInfo object
         mission.add_task(casename, casepath)
 
-        self.logger.debug("Done adding %s to job", casename)
+        self.logger.info("Done adding %s to job", casename)
 
     def delete_task(self, mission, case):
         """Delete a task from the mission's job (i.e., task scheduler)."""
