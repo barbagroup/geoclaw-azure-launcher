@@ -1,5 +1,4 @@
 *.log
-credential.txt
 **/_output*
 **/*.data
 **/_plots
@@ -11,3 +10,4 @@ credential.txt
 **/*.xml
 **/stdout.txt
 **/stderr.txt
+test_cases/cred.dat
