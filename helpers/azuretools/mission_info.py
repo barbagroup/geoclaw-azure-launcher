@@ -18,7 +18,7 @@ import datetime
 class MissionInfo():
     """A class holding information of a mission."""
 
-    def __init__(self, mission_name="", n_nodes_max=0, wd=".", tasks=None,
+    def __init__(self, mission_name="", n_nodes_max=0, wd=".",
                  vm_type="STANDARD_H8", node_type="dedicated"):
         """Constructor.
 
@@ -26,7 +26,6 @@ class MissionInfo():
             mission_name [in]: A str for the name of this mission.
             n_nodes_max [in]: Total number of computing nodes requested.
             wd [in]: working directory. (default: current directory)
-            tasks [in]: A pre-exist list of tasks.
             vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
             node_type [in]: Either "dedicated" (default) or "low-priority".
         """
@@ -35,7 +34,7 @@ class MissionInfo():
         self.logger = logging.getLogger("AzureMission")
         self.logger.debug("Creating a MissionInfo instance.")
 
-        self.setup(mission_name, n_nodes_max, wd, tasks, vm_type, node_type)
+        self.setup(mission_name, n_nodes_max, wd, vm_type, node_type)
 
         self.logger.info("Done creating a MissionInfo instance.")
 
@@ -56,7 +55,7 @@ class MissionInfo():
 
         return s
 
-    def setup(self, mission_name="", n_nodes_max=0, wd=".", tasks=None,
+    def setup(self, mission_name="", n_nodes_max=0, wd=".",
               vm_type="STANDARD_H8", node_type="dedicated"):
         """Setup the information of a mission.
 
@@ -64,7 +63,6 @@ class MissionInfo():
             mission_name [in]: A str for the name of this mission.
             n_nodes_max [in]: Total number of computing nodes requested.
             wd [in]: working directory. (default: current directory)
-            tasks [in]: A pre-exist list of tasks.
             vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
             node_type [in]: Either "dedicated" (default) or "low-priority".
         """
@@ -74,13 +72,12 @@ class MissionInfo():
         assert isinstance(mission_name, str), "Type error!"
         assert isinstance(n_nodes_max, int), "Type error!"
         assert isinstance(wd, str), "Type error!"
-        assert isinstance(tasks, dict) or tasks is None, "Type error!"
         assert isinstance(vm_type, str), "Type error!"
 
         # other properties
         self.name = mission_name # the name of this mission
         self.n_max_nodes = n_nodes_max # the number of computing nodes
-        self.wd = os.path.normpath(os.path.abspath(wd))
+        self.wd = os.path.abspath(wd)
         self.vm_type = vm_type # the type of virtual machines
         self.node_type = node_type # using dedicated or low-priority nodes
 
@@ -93,11 +90,7 @@ class MissionInfo():
         self.container_token = None
         self.container_url = None
 
-        if tasks is None:
-            self.tasks = {}
-        else:
-            self.tasks = tasks.copy()
-
+        self.tasks = {}
         self.backup_file = os.path.join(self.wd, "{}_backup_file.dat".format(self.name))
 
         # a formula for auto-scaling of the pool

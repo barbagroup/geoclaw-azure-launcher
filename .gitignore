@@ -1,6 +1,6 @@
 *.log
 credential.txt
-**/_output
+**/_output*
 **/*.data
 **/_plots
 **/__pycache__

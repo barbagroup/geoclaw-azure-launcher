@@ -702,7 +702,7 @@ class MissionController():
 
         self.logger.info("Done deleting directory %s", dirblobname)
 
-    def add_task(self, mission, casename, casepath, ignore_exist=False):
+    def add_task(self, mission, casename, casepath, ignore_exist=True):
         """Add a task to the mission's job (i.e., task scheduler).
 
         Args:
@@ -722,11 +722,16 @@ class MissionController():
         if casename in mission.tasks:
             if ignore_exist:
                 return
+            # if choose not to ignore, delete the existing task
+            self.delete_task(mission, casename)
 
         casepath = os.path.abspath(casepath)
 
+        ignore_patterns = ["__pycache__" ,".*?\.data", "fort\..*?",
+                           "_plots" ,".*?\.asc", ".*?\.prj", ".*?\.nc"]
+
         # upload to the storage container
-        self.upload_local_dir(mission, casename, casepath)
+        self.upload_local_dir(mission, casename, casepath, True, ignore_patterns)
 
         # configuration of Docker image being used
         task_container_settings = azure.batch.models.TaskContainerSettings(
@@ -786,7 +791,8 @@ class MissionController():
 
         self.logger.debug("Done adding %s to job", casename)
 
-    def delete_task(self, case):
+    def delete_task(self, mission, case):
         """Delete a task from the mission's job (i.e., task scheduler)."""
 
-        raise NotImplementedError
+        self.batch_client.task.delete(mission.job_name, case)
+        mission.remove_task(case)
