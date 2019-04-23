@@ -98,16 +98,28 @@ class Mission:
 
         self.logger.info("Mission instance write succeeded.")
 
-    def setup_communication(self, cred_file, cred_pass):
+    def setup_communication(self, cred_file=None, cred_pass=None, cred=None):
         """Setup communication between local and Azure.
+
+        Can provide either cred_file + cred_pass or cred.
 
         Args:
             cred_file [in]: encrypted file containing credential.
             cred_pass [in]: passcode to decrypt the file.
+            cred [in]: an UserCredential instance.
         """
 
-        self.credential = UserCredential()
-        self.credential.read_encrypted(cred_pass, cred_file)
+        if cred is None:
+            assert cred_file is not None and cred_pass is not None, \
+                "If cred is None, cred_file & cred_pass can not be None."
+
+            self.credential = UserCredential()
+            self.credential.read_encrypted(cred_pass, cred_file)
+        else:
+            assert cred_file is None and cred_pass is None, \
+                "If cred is not None, cred_file & cred_pass must be None."
+
+            self.credential = cred
 
         self.controller = MissionController(self.credential)
         self.reporter = MissionStatusReporter(self.credential)
@@ -151,6 +163,10 @@ class Mission:
             self.controller.delete_storage_container(self.info)
             self.info.container_url = None
             self.info.container_token = None
+
+            if os.path.isfile(self.info.backup_file):
+                os.remove(self.info.backup_file)
+
             logging.info("Storage of the mission %s deleted.", self.info.name)
 
         if job:
@@ -196,10 +212,44 @@ class Mission:
 
         print("All tasks done.")
 
-    def download_cases(
+    def download_case(
+            self, casename, syncmode=True, ignore_raw_data=True, ignore_figures=True,
+            ignore_rasters=True, ignore_noexist=False):
+        """Download a case folder.
+
+        Args:
+            casename [in]: the case to be downloaded.
+            syncmode [in]: to use sync mode or always download.
+            ignore_raw_data [in]: ignore GeoClaw raw data (default: True)
+            ignore_figures [in]: ignore figures (default: True)
+            ignore_rasters [in]: ignore raster files (default: True)
+        """
+
+        ignore_patterns = ["__pycache__"]
+
+        if ignore_raw_data:
+            ignore_patterns += [".*?\.data", "fort\..*?"]
+
+        if ignore_figures:
+            ignore_patterns += ["_plots"]
+
+        if ignore_rasters:
+            ignore_patterns += [".*?\.asc", ".*?\.prj"]
+
+        try:
+            self.controller.download_cloud_dir(
+                self.info, casename, self.info.tasks[casename]["path"], 
+                syncmode, ignore_patterns)
+        except KeyError:
+            if ignore_noexist:
+                pass
+            else:
+                raise
+
+    def download_all_cases(
             self, syncmode=True, ignore_raw_data=True, ignore_figures=True,
             ignore_rasters=True):
-        """Download case folderd.
+        """Download all case folders.
 
         Args:
             syncmode [in]: to use sync mode or always download.
@@ -231,4 +281,4 @@ class Mission:
         exec_file = os.path.join(os.path.dirname(this_file), "graphical_monitor.py")
 
         subprocess.Popen([
-            sys.executable, exec_file, self.info.name, cred_file, cred_pass])
+            "python", exec_file, self.info.name, cred_file, cred_pass])
