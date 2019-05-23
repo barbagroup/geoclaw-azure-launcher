@@ -1,6 +1,5 @@
 *.log
-credential.txt
-**/_output
+**/_output*
 **/*.data
 **/_plots
 **/__pycache__
@@ -11,3 +10,4 @@ credential.txt
 **/*.xml
 **/stdout.txt
 **/stderr.txt
+test_cases/cred.dat

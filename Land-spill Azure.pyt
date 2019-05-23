@@ -6,23 +6,29 @@
 #
 # Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """
 ArcGIS Pro Python toolbox.
 """
 import os
+import importlib
+import logging
 import numpy
 import helpers.arcgistools
 import helpers.azuretools
-import importlib
-importlib.reload(helpers.arcgistools)
+
+importlib.reload(helpers.azuretools)
+logging.basicConfig(filename=os.devnull)
 
 
 class Toolbox(object):
+    """Definition of the toolbox."""
+
     def __init__(self):
         """Define the toolbox (the name of the toolbox is the name of the
         .pyt file)."""
+
         self.label = "Land-spill Azure"
         self.alias = "landspill"
 
@@ -807,12 +813,17 @@ class RunCasesOnAzure(object):
                 parameters[10].value, parameters[11].value)
 
         # initialize an Azure mission
-        mission = helpers.azuretools.Mission(
-            credential, "landspill-azure", max_nodes, [],
-            output=os.devnull, vm_type=vm_type, wd=arcpy.env.scratchFolder)
+        mission = helpers.azuretools.Mission()
 
-        # start mission (creating pool, storage, scheduler)
-        mission.start(ignore_local_nonexist, ignore_azure_exist, False)
+        backup = os.path.join(working_dir, "landspill-azure_backup_file.dat")
+        if os.path.isfile(backup):
+            mission.init_info_from_file(backup)
+        else:
+            mission.init_info("landspill-azure", max_nodes, working_dir, 
+                vm_type, node_type="dedicated")
+
+        mission.setup_communication(cred=credential)
+        mission.create_resources()
 
         # loop through each point to add case to Azure task scheduler
         for i, point in enumerate(points):
@@ -821,17 +832,21 @@ class RunCasesOnAzure(object):
             y = "{}{}".format(numpy.abs(point[1]), "N" if point[1] >= 0 else "S")
             x = x.replace(".", "_")
             y = y.replace(".", "_")
-            case = os.path.join(working_dir, "{}{}".format(x, y))
+            casename = "{}{}".format(x, y)
+            casedir = os.path.join(working_dir, casename)
 
-            arcpy.AddMessage("Adding case {}".format(case))
-            result = mission.add_task(case, ignore_local_nonexist, ignore_azure_exist)
-            arcpy.AddMessage(result)
+            if not os.path.isdir(casedir):
+                if ignore_local_nonexist:
+                    continue
+                else:
+                    raise FileNotFoundError("Can not find case folder {}".format(casedir))
 
-            if i == (max_nodes - 1):
-                mission.adapt_size()
+            arcpy.AddMessage("Adding case {}".format(casename))
+            mission.add_task(casename, casedir, ignore_azure_exist)
+            arcpy.AddMessage("Done adding case {}".format(casename))
 
-        if points.shape[0] < max_nodes:
-            mission.adapt_size()
+        # write a backup file to local machine
+        mission.write_info_to_file()
 
         return
 
@@ -925,36 +940,37 @@ class DownloadCasesFromAzure(object):
         # Misc
         # =====================================================================
 
-        # 10: Skip a case if its case folder doesn't exist locally
-        ignore_nonexist = arcpy.Parameter(
-            displayName="Skip if a case is not found on Azure",
-            name="ignore_nonexist",
+        # 10: Skip a case if its case folder already exist on Azure
+        sync_mode = arcpy.Parameter(
+            displayName="Use synchronization mode",
+            name="sync_mode",
             datatype="GPBoolean", parameterType="Required", direction="Input")
-        ignore_nonexist.value = True
+        sync_mode.value = True
 
-        # 11: Skip a case if its case folder already exist on Azure
-        ignore_downloaded = arcpy.Parameter(
-            displayName="Skip if a case is already downloaded",
-            name="ignore_downloaded",
+        # 11: whether to ignore raw GeoClaw result data
+        ignore_raw = arcpy.Parameter(
+            displayName="Whether to ignore GeoClaw raw data",
+            name="ignore_raw",
             datatype="GPBoolean", parameterType="Required", direction="Input")
-        ignore_downloaded.value = True
+        ignore_raw.value = True
 
-        # 12: Also download raw GeoClaw result data
-        download_raw = arcpy.Parameter(
-            displayName="Also download GeoClaw raw data",
-            name="download_raw",
-            datatype="GPBoolean", parameterType="Required", direction="Input")
-        download_raw.value = False
-
-        # 13: Also download topography & hydro rasters
-        download_asc = arcpy.Parameter(
+        # 12: whether to ignore topography & hydro rasters
+        ignore_asc = arcpy.Parameter(
             displayName=\
-                "Also download topography and hydrological rasters used by GeoClaw",
-            name="download_asc",
+                "Whether to ignore topography and hydrological rasters used by GeoClaw",
+            name="ignore_asc",
             datatype="GPBoolean", parameterType="Required", direction="Input")
-        download_asc.value = False
+        ignore_asc.value = True
 
-        params += [ignore_nonexist, ignore_downloaded, download_raw, download_asc]
+        # 13: if case not in the record, raise an error or ignore error
+        ignore_noexist = arcpy.Parameter(
+            displayName=\
+                "Ignore if a case is not found in the record",
+            name="ignore_noexist",
+            datatype="GPBoolean", parameterType="Required", direction="Input")
+        ignore_noexist.value = False
+
+        params += [sync_mode, ignore_raw, ignore_asc, ignore_noexist]
 
         return params
 
@@ -1007,17 +1023,17 @@ class DownloadCasesFromAzure(object):
             parameters[1].valueAsText, ["SHAPE@X", "SHAPE@Y"],
             spatial_reference=arcpy.SpatialReference(3857))
 
-        # skip if a case is not found on Azure
-        ignore_nonexist = parameters[10].value
-
         # skip if a case is already downloaded
-        ignore_downloaded = parameters[11].value
+        sync_mode = parameters[10].value
 
-        # also download raw data
-        download_raw = parameters[12].value
+        # whether to ignore raw data
+        ignore_raw = parameters[11].value
 
-        # also download topography & hydrologic rasters used by GeoClaw
-        download_asc = parameters[13].value
+        # whether to ignore topography & hydrologic rasters used by GeoClaw
+        ignore_raster = parameters[12].value
+
+        # if a case not found in the record, whether to ignore the error
+        ignore_nonexist = parameters[13].value
 
         # Azure credential
         if parameters[2].value == "Encrypted file":
@@ -1030,12 +1046,16 @@ class DownloadCasesFromAzure(object):
                 parameters[8].value, parameters[9].value)
 
         # initialize an Azure mission
-        mission = helpers.azuretools.Mission(
-            credential, "landspill-azure", 0, [], output=os.devnull,
-            wd=arcpy.env.scratchFolder)
+        mission = helpers.azuretools.Mission()
 
-        # get container information
-        mission.controller.create_storage_container()
+        backup = os.path.join(working_dir, "landspill-azure_backup_file.dat")
+        if os.path.isfile(backup):
+            mission.init_info_from_file(backup)
+        else:
+            mission.init_info("landspill-azure", max_nodes, working_dir, 
+                vm_type, node_type="dedicated")
+
+        mission.setup_communication(cred=credential)
 
         # loop through each point to add case to Azure task scheduler
         for i, point in enumerate(points):
@@ -1044,13 +1064,12 @@ class DownloadCasesFromAzure(object):
             y = "{}{}".format(numpy.abs(point[1]), "N" if point[1]>=0 else "S")
             x = x.replace(".", "_")
             y = y.replace(".", "_")
-            case = os.path.join(working_dir, "{}{}".format(x, y))
+            case = "{}{}".format(x, y)
 
             arcpy.AddMessage("Downloading case {}".format(case))
-            result = mission.controller.download_dir(
-                case, download_raw, download_asc,
-                ignore_downloaded, ignore_nonexist)
-            arcpy.AddMessage(result)
+            mission.download_case(case, sync_mode, ignore_raw, True, 
+                ignore_raster, ignore_nonexist)
+            arcpy.AddMessage("Done downloading case {}".format(case))
 
         return
 
@@ -1068,31 +1087,37 @@ class DeleteAzureResources(object):
 
         params = []
 
-        # 0: Delete Batch pool, i.e., cluster
+        # 0, basic: working directory
+        working_dir = arcpy.Parameter(
+            displayName="Working Directory", name="working_dir",
+            datatype="DEWorkspace", parameterType="Required", direction="Input")
+        working_dir.value = arcpy.env.scratchFolder
+
+        # 1: Delete Batch pool, i.e., cluster
         delete_pool = arcpy.Parameter(
             displayName="Delete pool (cluster)",
             name="delete_pool",
             datatype="GPBoolean", parameterType="Required", direction="Input")
         delete_pool.value = True
 
-        # 1: Delete Batch job, i.e., task scheduler
+        # 2: Delete Batch job, i.e., task scheduler
         delete_job = arcpy.Parameter(
             displayName="Delete job (task scheduler)",
             name="delete_job",
             datatype="GPBoolean", parameterType="Required", direction="Input")
         delete_job.value = True
 
-        # 2: Delete Storage container
+        # 3: Delete Storage container
         delete_container = arcpy.Parameter(
             displayName="Delete storage container",
             name="delete_container",
             datatype="GPBoolean", parameterType="Required", direction="Input")
         delete_container.value = False
 
-        params += [delete_pool, delete_job, delete_container]
+        params += [working_dir, delete_pool, delete_job, delete_container]
 
 
-        # 3: credential type
+        # 4: credential type
         cred_type = arcpy.Parameter(
             displayName="Azure credential", name="cred_type",
             datatype="GPString", parameterType="Required", direction="Input")
@@ -1101,7 +1126,7 @@ class DeleteAzureResources(object):
         cred_type.filter.list = ["Encrypted file", "Manual input"]
         cred_type.value = "Encrypted file"
 
-        # 4: encrypted credential file
+        # 5: encrypted credential file
         cred_file = arcpy.Parameter(
             displayName="Encrypted credential file", name="cred_file",
             datatype="DEFile", parameterType="Optional", direction="Input",
@@ -1109,37 +1134,37 @@ class DeleteAzureResources(object):
 
         cred_file.value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
 
-        # 5: passcode
+        # 6: passcode
         passcode = arcpy.Parameter(
             displayName="Passcode for the credential file", name="passcode",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=True)
 
-        # 6: Batch account name
+        # 7: Batch account name
         azure_batch_name = arcpy.Parameter(
             displayName="Azure Batch account name", name="azure_batch_name",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=False)
 
-        # 7: Batch account key
+        # 8: Batch account key
         azure_batch_key = arcpy.Parameter(
             displayName="Azure Batch account key", name="azure_batch_key",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=False)
 
-        # 8: Batch account URL
+        # 9: Batch account URL
         azure_batch_URL = arcpy.Parameter(
             displayName="Azure Batch account URL", name="azure_batch_URL",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=False)
 
-        # 9: Storage account name
+        # 10: Storage account name
         azure_storage_name = arcpy.Parameter(
             displayName="Azure Storage account name", name="azure_storage_name",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=False)
 
-        # 10: Storage account key
+        # 11: Storage account key
         azure_storage_key = arcpy.Parameter(
             displayName="Azure Storage account key", name="azure_storage_key",
             datatype="GPStringHidden", parameterType="Optional",
@@ -1160,15 +1185,15 @@ class DeleteAzureResources(object):
         validation is performed.  This method is called whenever a parameter
         has been changed."""
 
-        parameters[4].enabled = (parameters[3].value == "Encrypted file")
-        parameters[5].enabled = (parameters[3].value == "Encrypted file")
+        parameters[5].enabled = (parameters[4].value == "Encrypted file")
+        parameters[6].enabled = (parameters[4].value == "Encrypted file")
 
-        if parameters[4].enabled:
-            parameters[4].value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
+        if parameters[5].enabled:
+            parameters[5].value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
         else:
-            parameters[4].value = None
+            parameters[5].value = None
 
-        for i in range(6, 11):
+        for i in range(7, 12):
             parameters[i].enabled = (not parameters[4].enabled)
 
         return
@@ -1177,52 +1202,56 @@ class DeleteAzureResources(object):
         """Modify the messages created by internal validation for each tool
         parameter.  This method is called after internal validation."""
 
-        if parameters[3].value == "Encrypted file":
-            if parameters[4].value is None:
-                parameters[4].setErrorMessage("Require a credential file.")
-
+        if parameters[4].value == "Encrypted file":
             if parameters[5].value is None:
-                parameters[5].setErrorMessage("Require passcode.")
+                parameters[5].setErrorMessage("Require a credential file.")
+
+            if parameters[6].value is None:
+                parameters[6].setErrorMessage("Require passcode.")
         else:
-            for i in range(6, 11):
+            for i in range(7, 12):
                 if parameters[i].value is None:
                     parameters[i].setErrorMessage("Cannot be empty.")
         return
 
     def execute(self, parameters, messages):
         """The source code of the tool."""
-        # skip if a case is not found on Azure
+
+        # path of the working directory
+        working_dir = parameters[0].valueAsText.replace("\\", "\\\\")
+
+        # whether to delete the pool
         delete_pool = parameters[0].value
 
-        # skip if a case is already downloaded
+        # whether to delete the job
         delete_job = parameters[1].value
 
-        # also download raw data
+        # whether to delete storage container
         delete_container = parameters[2].value
 
         # Azure credential
-        if parameters[3].value == "Encrypted file":
+        if parameters[4].value == "Encrypted file":
             credential = helpers.azuretools.UserCredential()
             credential.read_encrypted(
-                parameters[5].valueAsText, parameters[4].valueAsText)
+                parameters[6].valueAsText, parameters[5].valueAsText)
         else:
             credential = helpers.azuretools.UserCredential(
-                parameters[6].value, parameters[7].value, parameters[8].value,
-                parameters[9].value, parameters[10].value)
+                parameters[7].value, parameters[8].value, parameters[9].value,
+                parameters[10].value, parameters[11].value)
 
         # initialize an Azure mission
-        mission = helpers.azuretools.Mission(
-            credential, "landspill-azure", 0, [], output=os.devnull,
-            wd=arcpy.env.scratchFolder)
+        mission = helpers.azuretools.Mission()
 
-        if delete_pool:
-            mission.controller.delete_pool()
+        backup = os.path.join(working_dir, "landspill-azure_backup_file.dat")
+        if os.path.isfile(backup):
+            mission.init_info_from_file(backup)
+        else:
+            mission.init_info("landspill-azure", wd=working_dir)
 
-        if delete_job:
-            mission.controller.delete_job()
+        mission.setup_communication(cred=credential)
 
-        if delete_container:
-            mission.controller.delete_storage_container()
+        # clear resources
+        mission.clear_resources(delete_pool, delete_job, delete_container)
 
         return
 
@@ -1240,7 +1269,14 @@ class MonitorAzureResources(object):
 
         params = []
 
-        # 0: credential type
+        # 0, basic: working directory
+        working_dir = arcpy.Parameter(
+            displayName="Working Directory", name="working_dir",
+            datatype="DEWorkspace", parameterType="Required", direction="Input")
+
+        working_dir.value = arcpy.env.scratchFolder
+
+        # 1: credential type
         cred_type = arcpy.Parameter(
             displayName="Azure credential", name="cred_type",
             datatype="GPString", parameterType="Required", direction="Input")
@@ -1249,7 +1285,7 @@ class MonitorAzureResources(object):
         cred_type.filter.list = ["Encrypted file", "Manual input"]
         cred_type.value = "Encrypted file"
 
-        # 1: encrypted credential file
+        # 2: encrypted credential file
         cred_file = arcpy.Parameter(
             displayName="Encrypted credential file", name="cred_file",
             datatype="DEFile", parameterType="Optional", direction="Input",
@@ -1257,43 +1293,43 @@ class MonitorAzureResources(object):
 
         cred_file.value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
 
-        # 2: passcode
+        # 3: passcode
         passcode = arcpy.Parameter(
             displayName="Passcode for the credential file", name="passcode",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=True)
 
-        # 3: Batch account name
+        # 4: Batch account name
         azure_batch_name = arcpy.Parameter(
             displayName="Azure Batch account name", name="azure_batch_name",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=False)
 
-        # 4: Batch account key
+        # 5: Batch account key
         azure_batch_key = arcpy.Parameter(
             displayName="Azure Batch account key", name="azure_batch_key",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=False)
 
-        # 5: Batch account URL
+        # 6: Batch account URL
         azure_batch_URL = arcpy.Parameter(
             displayName="Azure Batch account URL", name="azure_batch_URL",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=False)
 
-        # 6: Storage account name
+        # 7: Storage account name
         azure_storage_name = arcpy.Parameter(
             displayName="Azure Storage account name", name="azure_storage_name",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=False)
 
-        # 7: Storage account key
+        # 8: Storage account key
         azure_storage_key = arcpy.Parameter(
             displayName="Azure Storage account key", name="azure_storage_key",
             datatype="GPStringHidden", parameterType="Optional",
             direction="Input", enabled=False)
 
-        params += [cred_type, cred_file, passcode,
+        params += [working_dir, cred_type, cred_file, passcode,
                    azure_batch_name, azure_batch_key, azure_batch_URL,
                    azure_storage_name, azure_storage_key]
 
@@ -1308,16 +1344,16 @@ class MonitorAzureResources(object):
         validation is performed.  This method is called whenever a parameter
         has been changed."""
 
-        parameters[1].enabled = (parameters[0].value == "Encrypted file")
-        parameters[2].enabled = (parameters[0].value == "Encrypted file")
+        parameters[2].enabled = (parameters[1].value == "Encrypted file")
+        parameters[3].enabled = (parameters[1].value == "Encrypted file")
 
-        if parameters[1].enabled:
-            parameters[1].value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
+        if parameters[2].enabled:
+            parameters[2].value = os.path.join(arcpy.env.scratchFolder, "azure_cred.bin")
         else:
-            parameters[1].value = None
+            parameters[2].value = None
 
-        for i in range(3, 8):
-            parameters[i].enabled = (not parameters[1].enabled)
+        for i in range(4, 9):
+            parameters[i].enabled = (not parameters[2].enabled)
 
         return
 
@@ -1325,51 +1361,46 @@ class MonitorAzureResources(object):
         """Modify the messages created by internal validation for each tool
         parameter.  This method is called after internal validation."""
 
-        if parameters[0].value == "Encrypted file":
-            if parameters[1].value is None:
-                parameters[1].setErrorMessage("Require a credential file.")
-
+        if parameters[1].value == "Encrypted file":
             if parameters[2].value is None:
-                parameters[2].setErrorMessage("Require passcode.")
+                parameters[2].setErrorMessage("Require a credential file.")
+
+            if parameters[3].value is None:
+                parameters[3].setErrorMessage("Require passcode.")
         else:
-            for i in range(3, 8):
+            for i in range(4, 9):
                 if parameters[i].value is None:
                     parameters[i].setErrorMessage("Cannot be empty.")
         return
 
     def execute(self, parameters, messages):
         """The source code of the tool."""
-        import tkinter
-        import datetime
-        import time
+
+        # path of the working directory
+        working_dir = parameters[0].valueAsText.replace("\\", "\\\\")
 
         # Azure credential
-        if parameters[0].value == "Encrypted file":
+        if parameters[1].value == "Encrypted file":
             credential = helpers.azuretools.UserCredential()
             credential.read_encrypted(
-                parameters[2].valueAsText, parameters[1].valueAsText)
+                parameters[3].valueAsText, parameters[2].valueAsText)
         else:
             credential = helpers.azuretools.UserCredential(
-                parameters[3].value, parameters[4].value, parameters[5].value,
-                parameters[6].value, parameters[7].value)
+                parameters[4].value, parameters[5].value, parameters[6].value,
+                parameters[7].value, parameters[8].value)
 
         # initialize an Azure mission
-        self.mission = helpers.azuretools.Mission(
-            credential, "landspill-azure", 0, [], output=os.devnull,
-            wd=arcpy.env.scratchFolder)
+        mission = helpers.azuretools.Mission()
 
-        # initialize tkinter windows
-        self.root = tkinter.Tk()
-        self.window = helpers.arcgistools.AzureMonitorWindow(self.root)
+        backup = os.path.join(working_dir, "landspill-azure_backup_file.dat")
+        if os.path.isfile(backup):
+            mission.init_info_from_file(backup)
+        else:
+            mission.init_info("landspill-azure", wd=working_dir)
 
-        # start monitor
-        self.window.after(0, self._recursive_callback)
-        self.window.mainloop()
+        mission.setup_communication(cred=credential)
+
+        # get graphical monitor
+        mission.get_graphical_monitor(parameters[2].valueAsText, parameters[3].valueAsText)
 
         return
-
-    def _recursive_callback(self):
-        """A private function used by GUI to update monitor."""
-        info = self.mission.get_monitor_string()
-        self.window.update_text(info)
-        self.window.after(10000, self._recursive_callback)

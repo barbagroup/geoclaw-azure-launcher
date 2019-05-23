@@ -4,17 +4,34 @@
 #
 # Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """
-__init__.py
+Utilities for launching landspill simulations on Azure Batch clusters.
 """
 
-from helpers.azuretools.UserCredential import UserCredential
-from helpers.azuretools.MissionInfo import MissionInfo
-from helpers.azuretools.MissionController import MissionController
-from helpers.azuretools.MissionMonitor import MissionMonitor
-from helpers.azuretools.Mission import Mission
+# auto-reloading submodules in case users reload this package
+import importlib as _importlib
 
-__version__ = "alpha"
+try:
+    _importlib.reload(user_credential)
+    _importlib.reload(mission_info)
+    _importlib.reload(mission_controller)
+    _importlib.reload(mission_status_reporter)
+    _importlib.reload(graphical_monitor)
+    _importlib.reload(mission)
+except NameError as err:
+    pass
+
+
+# move core classes to this level
+from .user_credential import UserCredential
+from .mission_info import MissionInfo
+from .mission_controller import MissionController
+from .mission_status_reporter import MissionStatusReporter
+from .graphical_monitor import GraphicalMonitor
+from .mission import Mission
+
+# meta data
+__version__ = "v1.0-alpha"
 __author__ = "Pi-Yueh Chuang (pychuang@gwu.edu)"

@@ -4,11 +4,12 @@
 #
 # Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """
 A function to report download/upload progress.
 """
+import re
 
 
 def reporthook(prefix, output, current, total):
@@ -29,3 +30,24 @@ def reporthook(prefix, output, current, total):
     print("\r"+(len(line)+10)*" ", end='', file=output)
     print("\r"+line, end='', file=output)
     output.flush()
+
+def path_ignored(filepath, ignore_patterns):
+    """An utility to check if the file path match any of the ignore patterns.
+
+    The ignore patterns is a list of regular expression (Python style).
+
+    Args:
+        filepath [in]: the path of a file.
+        ignore_patterns [in]: a list of regular expression strings.
+    """
+
+    assert isinstance(filepath, str), "Type error!"
+    assert isinstance(ignore_patterns, list), "Type error!"
+
+    for pattern in ignore_patterns:
+        result = re.search(pattern, filepath)
+
+        if result is not None:
+            return True
+
+    return False

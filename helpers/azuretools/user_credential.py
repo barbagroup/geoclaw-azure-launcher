@@ -4,12 +4,13 @@
 #
 # Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """
 An object holding user information for Azure services.
 """
 import azure.storage.blob
+import azure.cosmosdb.table.tableservice
 import azure.batch.batch_auth
 import azure.batch.batch_service_client
 
@@ -63,6 +64,17 @@ class UserCredential:
         """
 
         return azure.storage.blob.BlockBlobService(
+            account_name=self.storage_account_name,
+            account_key=self.storage_account_key)
+
+    def create_table_client(self):
+        """create_table_client
+
+        Return:
+            A new instance of azure.cosmosdb.table.tableservice.TableService.
+        """
+
+        return azure.cosmosdb.table.tableservice.TableService(
             account_name=self.storage_account_name,
             account_key=self.storage_account_key)
 
