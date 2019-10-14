@@ -1,10 +1,39 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
+########################################################################################################################
+# Copyright © 2019 The George Washington University and G2 Integrated Solutions, LLC.
+# All Rights Reserved.
 #
-# Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
+# Contributors: Pi-Yueh Chuang <pychuang@gwu.edu>
+#               J. Tracy Thorleifson <tracy.thorleifson@g2-is.com>
 #
-# Distributed under terms of the BSD 3-Clause license.
+# Licensed under the BSD-3-Clause License (the "License").
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at: https://opensource.org/licenses/BSD-3-Clause
+#
+# BSD-3-Clause License:
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided
+# that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the
+#    following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
+#    following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or
+#    promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+# INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+# GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+########################################################################################################################
 
 """
 Definition of MissionInfo.
@@ -17,9 +46,11 @@ import datetime
 
 class MissionInfo():
     """A class holding information of a mission."""
+    # 6/28/2019 - G2 Integrated Solutions - JTT - Modified to store the Azure pool Docker image name
 
     def __init__(self, mission_name="", n_nodes_max=0, wd=".",
-                 vm_type="STANDARD_H8", node_type="dedicated"):
+                 vm_type="STANDARD_H8", node_type="dedicated",
+                 pool_image="g2integratedsolutions/landspill:g2bionic1_1"):
         """Constructor.
 
         Args:
@@ -28,22 +59,26 @@ class MissionInfo():
             wd [in]: working directory. (default: current directory)
             vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
             node_type [in]: Either "dedicated" (default) or "low-priority".
+            6/28/2019 - G2 Integrated Solutions - JTT
+            pool_image [in]: Name of the Azure pool Docker image
         """
 
         # logger
         self.logger = logging.getLogger("AzureMission")
         self.logger.debug("Creating a MissionInfo instance.")
 
-        self.setup(mission_name, n_nodes_max, wd, vm_type, node_type)
+        self.setup(mission_name, n_nodes_max, wd, vm_type, node_type, pool_image)
 
         self.logger.info("Done creating a MissionInfo instance.")
 
     def __str__(self):
         """__str__"""
 
+        # 6/28/2019 - G2 Integrated Solutions - JTT - self.pool_image added to set Azure pool Docker image name
         s = "Name: {}\n".format(self.name) + \
             "VM type: {}\n".format(self.vm_type) + \
             "Pool name: {}\n".format(self.pool_name) + \
+            "Pool image: {}\n".format(self.pool_image) + \
             "Job (task scheduler) name: {}\n".format(self.job_name) + \
             "Storage container name: {}\n".format(self.container_name) + \
             "Storage table name: {}\n".format(self.table_name) + \
@@ -56,7 +91,8 @@ class MissionInfo():
         return s
 
     def setup(self, mission_name="", n_nodes_max=0, wd=".",
-              vm_type="STANDARD_H8", node_type="dedicated"):
+              vm_type="STANDARD_H8", node_type="dedicated",
+              pool_image="g2integratedsolutions/landspill:g2bionic1_1"):
         """Setup the information of a mission.
 
         Args:
@@ -65,6 +101,8 @@ class MissionInfo():
             wd [in]: working directory. (default: current directory)
             vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
             node_type [in]: Either "dedicated" (default) or "low-priority".
+            6/28/2019 - G2 Integrated Solutions - JTT
+            pool_image [in]: Name of the Azure pool Docker image
         """
 
         self.logger.debug("Setting up a MissionInfo instance.")
@@ -73,13 +111,15 @@ class MissionInfo():
         assert isinstance(n_nodes_max, int), "Type error!"
         assert isinstance(wd, str), "Type error!"
         assert isinstance(vm_type, str), "Type error!"
+        assert isinstance(pool_image, str), "Type error!"
 
         # other properties
-        self.name = mission_name # the name of this mission
-        self.n_max_nodes = n_nodes_max # the number of computing nodes
+        self.name = mission_name  # the name of this mission
+        self.n_max_nodes = n_nodes_max  # the number of computing nodes
         self.wd = os.path.abspath(wd)
-        self.vm_type = vm_type # the type of virtual machines
-        self.node_type = node_type # using dedicated or low-priority nodes
+        self.vm_type = vm_type  # the type of virtual machines
+        self.node_type = node_type  # using dedicated or low-priority nodes
+        self.pool_image = pool_image  # name of the pool/cluster Docker image
 
         self.pool_name = "{}-pool".format(self.name) # pool/cluster name
         self.job_name = "{}-job".format(self.name) # task schduler name
@@ -196,6 +236,7 @@ class MissionInfo():
                 self.node_type,
                 self.wd,
                 self.vm_type,
+                self.pool_image,  # 6/28/2019 - G2 Integrated Solutions - JTT - Azure pool Docker image name
                 self.pool_name,
                 self.job_name,
                 self.container_name,
@@ -226,8 +267,10 @@ class MissionInfo():
             data_list = pickle.loads(f.read())
 
         # assign to each member from data_list
+        # 6/28/2019 - G2 Integrated Solutions - JTT - self.pool_image added to set Azure pool Docker image name
         timestamp, self.name, self.n_max_nodes, self.auto_scaling_formula, \
             self.node_type, self.wd, self.vm_type, \
+            self.pool_image, \
             self.pool_name, self.job_name, self.container_name, self.table_name, \
             self.container_token, self.container_url, self.tasks, \
             self.backup_file = data_list

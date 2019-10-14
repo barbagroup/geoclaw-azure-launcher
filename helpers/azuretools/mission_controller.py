@@ -1,10 +1,39 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
+########################################################################################################################
+# Copyright © 2019 The George Washington University and G2 Integrated Solutions, LLC.
+# All Rights Reserved.
 #
-# Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
+# Contributors: Pi-Yueh Chuang <pychuang@gwu.edu>
+#               J. Tracy Thorleifson <tracy.thorleifson@g2-is.com>
 #
-# Distributed under terms of the BSD 3-Clause license.
+# Licensed under the BSD-3-Clause License (the "License").
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at: https://opensource.org/licenses/BSD-3-Clause
+#
+# BSD-3-Clause License:
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided
+# that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the
+#    following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
+#    following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or
+#    promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+# INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+# GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+########################################################################################################################
 
 """
 A controller for the mission (i.e., object that can issue commands to Azure).
@@ -170,7 +199,7 @@ class MissionController():
         """Create a pool on Azure based on the mission info.
 
         Args:
-            mission [in]: an MissionInfo object.
+            mission [in]: a MissionInfo object.
         """
 
         self.logger.debug("Creating pool %s", mission.pool_name)
@@ -179,9 +208,28 @@ class MissionController():
 
         # if the pool already exists (it does not mean it's ready)
         if self.batch_client.pool.exists(pool_id=mission.pool_name):
-            self.logger.info(
-                "Pool %s already exists. Skip creation.", mission.pool_name)
-            return
+            mission_pool = self.batch_client.pool.get(pool_id=mission.pool_name)
+            assert isinstance(mission_pool, azure.batch.models.CloudPool), "Type error!"
+            mission_pool_vm_config = mission_pool.virtual_machine_configuration
+            assert isinstance(mission_pool_vm_config, azure.batch.models.VirtualMachineConfiguration), "Type error!"
+            mission_pool_vm_cntnr_config = mission_pool_vm_config.container_configuration
+            assert isinstance(mission_pool_vm_cntnr_config, azure.batch.models.ContainerConfiguration), "Type error!"
+            if mission_pool_vm_cntnr_config.container_image_names[0] == mission.pool_image:
+                self.logger.info(
+                    "Pool %s already exists. Skip creation.", mission.pool_name)
+                return
+            else:  # Pool exists, but specified Docker image does not match.
+                self.logger.info(
+                    "Pool %s already exists, but there is an image conflict.", mission.pool_name)
+                self.logger.info(
+                    "Existing pool image = %s", mission_pool_vm_cntnr_config.container_image_names[0])
+                self.logger.info(
+                    "Specified pool image = %s", mission.pool_image)
+                self.logger.error("Exiting with error condition due to pool image conflict.")
+
+                raise ValueError("The Azure pool, landspill-azure-pool, already exists, but has a different Docker "
+                                 "image than the one you specified. You must delete the existing pool (using the "
+                                 "Delete Azure Resources tool) before you can use the specified image.")
 
         # if the batch client is not aware of this pool
         self.logger.debug("Issuing command to create pool %s.", mission.pool_name)
@@ -195,7 +243,7 @@ class MissionController():
 
         # prefetched Docker image
         container_conf = azure.batch.models.ContainerConfiguration(
-            container_image_names=['barbagroup/landspill:bionic'])
+            container_image_names=[mission.pool_image])
 
         # vm setting
         vm_conf = azure.batch.models.VirtualMachineConfiguration(
@@ -736,7 +784,7 @@ class MissionController():
 
         # configuration of Docker image being used
         task_container_settings = azure.batch.models.TaskContainerSettings(
-            image_name="barbagroup/landspill:bionic",
+            image_name=mission.pool_image,
             container_run_options="--rm --workdir /home/landspill")
 
         # file that will be copied to VM from Azure storage

@@ -1,10 +1,39 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
+########################################################################################################################
+# Copyright © 2019 The George Washington University and G2 Integrated Solutions, LLC.
+# All Rights Reserved.
 #
-# Copyright © 2019 Pi-Yueh Chuang <pychuang@gwu.edu>
+# Contributors: Pi-Yueh Chuang <pychuang@gwu.edu>
+#               J. Tracy Thorleifson <tracy.thorleifson@g2-is.com>
 #
-# Distributed under terms of the BSD 3-Clause license.
+# Licensed under the BSD-3-Clause License (the "License").
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at: https://opensource.org/licenses/BSD-3-Clause
+#
+# BSD-3-Clause License:
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided
+# that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the
+#    following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
+#    following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or
+#    promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+# INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+# GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+########################################################################################################################
 
 """
 A class represeting a batch of simulations.
@@ -53,7 +82,7 @@ class Mission:
         self.logger.info("AzureMission logger initialization succeeded.")
 
     def init_info(self, mission_name="", n_nodes_max=0, wd=".", vm_type="STANDARD_H8",
-             node_type="dedicated", log_level=logging.INFO):
+             node_type="dedicated", log_level=logging.INFO, pool_image="g2integratedsolutions/landspill:g2bionic1_1"):
         """Initialize the information.
 
         Args:
@@ -63,9 +92,11 @@ class Mission:
             vm_type [in]: The type of virtual machine. (default: STANDARD_H8)
             node_type [in]: Either "dedicated" (default) or "low-priority".
             log_level [in]: Python logging level.
+            6/28/2019 - G2 Integrated Solutions - JTT
+            pool_image [in]: Name of the Azure pool Docker image
         """
 
-        self.info = MissionInfo(mission_name, n_nodes_max, wd, vm_type, node_type)
+        self.info = MissionInfo(mission_name, n_nodes_max, wd, vm_type, node_type, pool_image)
         self._init_logger(log_level)
 
         self.logger.info("Mission instance initialization succeeded.")
