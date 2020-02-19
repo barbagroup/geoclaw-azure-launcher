@@ -4,7 +4,7 @@
 # vim:ft=python
 # vim:ff=unix
 ########################################################################################################################
-# Copyright © 2019 The George Washington University and G2 Integrated Solutions, LLC.
+# Copyright © 2019-2020 Pi-Yueh Chuang, Lorena A. Barba, and G2 Integrated Solutions, LLC.
 # All Rights Reserved.
 #
 # Contributors: Pi-Yueh Chuang <pychuang@gwu.edu>
@@ -1004,7 +1004,7 @@ class RunCasesOnAzure(object):
 
         # Check to make sure the specified Docker image is valid.
         # 2019/06/28 - G2 Integrated Solutions, LLC - JTT
-        
+
         if len(parameters[14].value.split(":")) != 2:
             parameters[14].setErrorMessage("Invalid Docker image name. Image name must be of the form: "
                                            "<organization>/<repository>:<tag>")
@@ -1091,7 +1091,7 @@ class RunCasesOnAzure(object):
         if os.path.isfile(backup):
             mission.init_info_from_file(backup)
         else:
-            mission.init_info("landspill-azure", max_nodes, working_dir, 
+            mission.init_info("landspill-azure", max_nodes, working_dir,
                 vm_type, node_type="dedicated", pool_image=azure_pool_docker_image)
 
         mission.setup_communication(cred=credential)
@@ -1416,7 +1416,7 @@ class DownloadCasesFromAzure(object):
                 case = re.sub("[^a-zA-Z0-9]", "_", point[2])
 
             arcpy.AddMessage("Downloading case {}".format(case))
-            mission.download_case(case, sync_mode, ignore_raw, True, 
+            mission.download_case(case, sync_mode, ignore_raw, True,
                 ignore_raster, ignore_nonexist)
             arcpy.AddMessage("Done downloading case {}".format(case))
 
